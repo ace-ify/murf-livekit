@@ -33,20 +33,23 @@ export interface AppConfig {
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Murf AI',
-  pageTitle: 'Voice Agent Starter',
-  pageDescription: 'A voice agent powered by Murf Falcon — the fastest TTS API',
+  companyName: 'Asha Health Helpline',
+  pageTitle: 'Asha — Health Access Helpline',
+  pageDescription: 'A voice helpline for rural health centres, powered by Murf Falcon — the fastest TTS API',
 
-  supportsChatInput: true,
-  supportsVideoInput: true,
-  supportsScreenShare: true,
+  // Voice-only on purpose: this models a phone call to a health centre. Leaving
+  // camera/screen-share on made callers ask Asha to "look at" them, and typing
+  // input is useless to a caller who can't read.
+  supportsChatInput: false,
+  supportsVideoInput: false,
+  supportsScreenShare: false,
   isPreConnectBufferEnabled: true,
 
   logo: '/murf-logo.svg',
-  accent: '#6366F1',
+  accent: '#0D9488',
   logoDark: '/murf-logo-dark.svg',
-  accentDark: '#818cf8',
-  startButtonText: 'Start talking',
+  accentDark: '#2DD4BF',
+  startButtonText: 'Call Asha',
 
   // optional: audio visualization configuration
   // audioVisualizerType: 'bar',
