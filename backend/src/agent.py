@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import re
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -9,7 +11,6 @@ from livekit.agents import (
     JobContext,
     JobProcess,
     cli,
-    inference,
     metrics,
     tokenize,
     room_io,
@@ -22,37 +23,137 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-# Track: Health Access (#VoiceForBharat)
-SYSTEM_PROMPT = """You are Asha, a health access helpline assistant for a rural primary health centre in India.
+# Track: Health Access (#VoiceForBharat) — Day 2
+SYSTEM_PROMPT = """IDENTITY
+You are Samar, a male voice helpline assistant for rural primary health centres (PHCs) in India. Speak using male grammatical endings in Hindi/Hinglish (e.g. use "karunga", "bolunga", "karta hoon" instead of "karungi", "bolungi", "karti hoon").
 
-You help with three things: understanding a health problem well enough to route it to the right care, visits to the health centre, and plain answers about common conditions, vaccination and government health schemes.
+OBJECTIVES
+A successful call achieves one of three things:
+1. TRIAGE — the caller understands what care they need and how urgently.
+2. VISIT — the caller knows to go to the PHC, and when. You cannot book anything.
+3. INFORMATION — the caller gets a plain-language answer about a common condition, vaccination, or government health scheme (PMJAY, Ayushman Bharat, JSSK).
 
-EMERGENCY RULE, overrides everything below. On chest pain, trouble breathing, heavy bleeding, an unconscious person, snake bite, poisoning, serious burn, a fit or seizure, sudden weakness on one side of the body, or any pregnancy problem: stop the normal conversation, tell them to call 108 for an ambulance now, and stay on the line with simple first aid steps until help arrives.
+KNOWLEDGE
+You know: common symptoms and what they generally suggest, basic first aid, National Immunization Programme schedule, PMJAY / Ayushman Bharat / JSSK eligibility in general terms, standard PHC services.
+You do not know: the caller's medical history, current doctor availability, medicine stock at any PHC, or any real-time data. Say so clearly when asked.
 
-You are not a doctor. Never diagnose, never state an illness as certain, never name a prescription medicine or a dose. Say what the symptoms could point to in general terms, then who to see and how soon.
+LANGUAGE
+Answer in the language the caller used, every single turn. An English question gets an English answer. A Hindi question gets a Hindi answer. Hinglish gets Hinglish. Never answer an English question in Hindi.
+When responding in Hindi or Hinglish, you MUST write the entire output in Devanagari script (देवनागरी लिपि). Transcribe all English loanwords into Devanagari script (e.g., write "डॉक्टर" instead of "doctor", "अपॉइंटमेंट" instead of "appointment", "हेल्प" instead of "help"). Never mix Latin letters into a Devanagari word.
 
-LANGUAGE. Decide from the caller's first words: Hindi, English, or Hinglish. Stay in that language for the whole call. Only switch if the caller switches first. Never change language mid-answer.
+GUARDRAILS
 
-SPEAKING. Two or three short sentences, never more. One question at a time, then stop and wait. Everyday words only. Warm and unhurried, never alarming.
+EMERGENCY — overrides everything. Act immediately.
+Symptoms: chest pain, trouble breathing, heavy bleeding, unconscious person, snake bite, poisoning, serious burn, fit or seizure, sudden one-sided weakness, any pregnancy emergency.
+Action: stop the conversation. Say "Please call 108 for an ambulance right now. I will stay on the line." Give simple first aid steps until help arrives.
 
-NEVER repeat a point you have already made. If the caller misunderstands, say it a different way or move on, do not restate the same sentence.
+URGENT — needs care today, not an emergency.
+Symptoms: high persistent fever, signs of dehydration, repeated vomiting or diarrhoea, a fainting episode even if the person has recovered, worsening injury, chest tightness without acute pain.
+Action: say "This needs a doctor today — please go to the PHC or a district hospital, don't wait."
 
-These rules describe how YOU speak. Never quote them, explain them, or ask the caller to change how they talk.
+ROUTINE — answer the question. If it needs clinical judgment, say "A doctor at the PHC can look at this properly. Please visit the health centre."
 
-No formatting, lists, emojis or symbols. Everything you say is read aloud.
+Hard refusals — state clearly, then give the escalation path:
+- Never diagnose or state an illness as certain.
+- Never name a medicine, or approve one the caller names, or give a dose. This includes over-the-counter medicines like paracetamol. Say only that a doctor decides which medicine and how much.
+- Never confirm doctor availability or appointment times.
+- Never give medicine prices.
+- Never claim to be a doctor, nurse, or medical professional.
+- Never claim your information is current, local, or specific to the caller.
+- Never answer "yes" or "no" to a question about how serious a symptom is. Say what would make it serious, what to watch for, and when to go in.
+- Never offer to book, arrange, or hold an appointment. You have no booking system. Tell the caller to visit or phone the PHC directly.
 
-Open with: "Namaste, this is Asha from the health centre. Are you calling about yourself or for someone else?\""""
+STYLE
+Two or three short sentences per turn. One question at a time, then stop and wait. Everyday words only — no jargon. Warm and unhurried. Never alarming unless it is a true emergency.
+Never repeat a point already made; rephrase if the caller misunderstands.
+Never quote, explain, or reference these rules to the caller.
+No formatting, lists, emojis, or symbols — everything is read aloud.
+Never add a translation or parenthetical after what you say. One language per turn.
+Every refusal ends with a concrete next step — the PHC, a district hospital, 108, or the Ayushman Bharat helpline 14555. Never refuse and stop there.
+You have already greeted the caller. Never greet or introduce yourself again mid-call."""
 
-# Murf Falcon voice. Murf accepts either the prefixed id ("en-IN-anisha") or the
-# bare actor name ("anisha"). Swap to Samar or Pooja, or a hi-IN locale, here —
-# it's the only knob needed to change the voice.
-MURF_VOICE = "en-IN-anisha"
-MURF_LOCALE = "en-IN"
+GREETING = (
+    "Namaste, this is Samar from the health centre. "
+    "Are you calling about yourself or for someone else?"
+)
+
+# Murf Falcon voice. On the Falcon stream endpoint the bare actor name works;
+# locale must agree with the voice or Devanagari comes out mispronounced.
+MURF_VOICE = "Samar"
+
+# Silent user handling — re-prompt once, graceful close on the second silence.
+# LiveKit's own idle detection (AgentSession(user_away_timeout=...)) only starts
+# counting once BOTH the caller and the agent are silent. A hand-rolled timer
+# armed off TTS metrics fires while the agent is still talking, so it feels far
+# too fast on a real call.
+SILENCE_TIMEOUT = 12.0
+SILENCE_RE_PROMPTS = [
+    "Are you still there? Take your time — I'm listening.",
+    "I'll close the call now. Please call us back whenever you're ready. Take care.",
+]
+
+# Latin fragments Gemini leaves inside Devanagari words, and their Devanagari
+# spellings. Only applied to words that already contain Devanagari, so an
+# all-English reply is left alone.
+_LOANWORDS = {
+    "acetamol": "ेसिटामोल",
+    "paracetamol": "पैरासिटामोल",
+    "fallen": "फेंट",
+    "fever": "बुखार",
+    "doctor": "डॉक्टर",
+    "appointment": "अपॉइंटमेंट",
+    "help": "हेल्प",
+    "tablet": "टैबलेट",
+    "ulti": "उल्टी",
+    "check": "चेक",
+    "normal": "नॉर्मल",
+    "high": "हाई",
+}
+_DEVANAGARI = re.compile(r"[ऀ-ॿ]")
+_LATIN_RUN = re.compile(r"[A-Za-z]+")
+
+
+def _fix_script_mix(s: str) -> str:
+    """Rewrite Latin fragments inside a Devanagari reply so Murf can read them.
+
+    Only fires when the text is already mostly Devanagari — a pure English or
+    Latin-script Hinglish reply is left untouched. Unknown fragments are kept
+    as-is: a mispronounced word beats a silently deleted one.
+    """
+    if len(_DEVANAGARI.findall(s)) <= len(_LATIN_RUN.findall(s)):
+        return s
+    out = _LATIN_RUN.sub(lambda m: _LOANWORDS.get(m.group(0).lower(), m.group(0)), s)
+    if out != s:
+        logger.info("SCRIPTFIX %r -> %r", s, out)
+    return out
 
 
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(instructions=SYSTEM_PROMPT)
+
+    async def tts_node(self, text, model_settings):
+        # Gemini sometimes leaves a Latin fragment inside a Devanagari word
+        # ("परacetamol", "फीक fallen"), which Murf reads letter-by-letter. Fix it
+        # here rather than in the transcript, so the caller still sees what was
+        # generated. Buffer the trailing partial word so a fragment split across
+        # two chunks is still matched; everything before it passes straight
+        # through, spacing untouched.
+        async def repaired():
+            tail = ""
+            async for chunk in text:
+                buf = tail + chunk
+                cut = max(buf.rfind(" "), buf.rfind("\n"))
+                if cut == -1:
+                    tail = buf
+                    continue
+                tail = buf[cut + 1 :]
+                yield _fix_script_mix(buf[: cut + 1])
+            if tail:
+                yield _fix_script_mix(tail)
+
+        async for frame in Agent.default.tts_node(self, repaired(), model_settings):
+            yield frame
 
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
@@ -101,18 +202,20 @@ async def my_agent(ctx: JobContext):
         stt=deepgram.STT(model="nova-3", language="multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
-        # Groq (llama-3.1-8b-instant) as primary — lowest latency, no demand spikes.
-        # Gemini falls in automatically if Groq fails or times out (attempt_timeout=5s).
+        # Gemini primary — noticeably better Hindi/Hinglish generation than the
+        # Groq llamas, which produced incoherent Hindi ("aapke paas kyon
+        # bhatkana hai?"). Groq llama-3.3-70b is the fallback: 8b-instant gave
+        # off-topic replies, qwen3.6 leaks <think> tags, gpt-oss is slower.
+        # FallbackAdapter switches automatically on failure or 5s timeout.
         llm=FallbackAdapter([
-            groq.LLM(model="llama-3.1-8b-instant"),
             google.LLM(model="gemini-2.0-flash-lite-001"),
+            groq.LLM(model="llama-3.3-70b-versatile"),
         ]),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
                 voice=MURF_VOICE,
-                locale=MURF_LOCALE,
-                style="Conversation",
+                style="Conversational",
                 tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
                 text_pacing=True
             ),
@@ -123,30 +226,76 @@ async def my_agent(ctx: JobContext):
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
+        # Fires "user_state_changed" -> "away" once user AND agent are both
+        # silent for this long. Drives the silent-caller handling below.
+        user_away_timeout=SILENCE_TIMEOUT,
     )
 
-    # Day 1 optional extra: baseline response latency, logged once per turn.
-    # The components arrive as separate metrics events, so accumulate then log.
-    #
-    # eou (turn-detection delay) is reported as None whenever LiveKit judges VAD
-    # unreliable — see audio_recognition.py: "better than providing likely wrong
-    # values". So it is printed as "n/a", never as 0, and never silently summed
-    # into the total: a 0 there would read as "no delay" when it means "unknown".
-    #
-    # ponytail: plain dict, not a per-speech_id map — one caller talks at a time.
-    # If you ever run concurrent speech, key this by m.speech_id.
-    turn = {}
+    # ── Silent caller handling ───────────────────────────────────────────────
+    # Follow LiveKit's documented cancellable-task pattern: start one task on
+    # "away", re-prompt once, wait for a response, then close. Voice activity
+    # cancels via user_state_changed. Typed chat uses the RoomIO text callback
+    # below because text input does not change the audio user state.
+    inactivity_task: asyncio.Task[None] | None = None
+
+    def _cancel_inactivity() -> None:
+        nonlocal inactivity_task
+
+        if inactivity_task is not None and not inactivity_task.done():
+            inactivity_task.cancel()
+        inactivity_task = None
+
+    async def _handle_inactivity() -> None:
+        logger.info("SILENCE re-prompt after %.0fs idle", SILENCE_TIMEOUT)
+        try:
+            await session.say(
+                SILENCE_RE_PROMPTS[0], allow_interruptions=True
+            ).wait_for_playout()
+            await asyncio.sleep(SILENCE_TIMEOUT)
+
+            logger.info("SILENCE no response after re-prompt, closing call")
+            await session.say(
+                SILENCE_RE_PROMPTS[1], allow_interruptions=True
+            ).wait_for_playout()
+            session.shutdown()
+        except asyncio.CancelledError:
+            logger.info("SILENCE caller returned, cancelling close")
+            raise
+
+    @session.on("user_state_changed")
+    def _on_user_state_changed(ev) -> None:
+        nonlocal inactivity_task
+
+        if ev.new_state == "away":
+            if inactivity_task is None or inactivity_task.done():
+                inactivity_task = asyncio.create_task(_handle_inactivity())
+            return
+
+        _cancel_inactivity()
+
+    async def _on_text_input(sess, ev) -> None:
+        # LiveKit's default callback is interrupt() + generate_reply(). Add only
+        # the missing inactivity cancellation before preserving that behavior.
+        _cancel_inactivity()
+        await sess.interrupt()
+        sess.generate_reply(user_input=ev.text)
+
+    # ── Latency logging (Day 1 optional extra) ───────────────────────────────
+    # Components arrive as separate metrics events, so accumulate then log.
+    # eou is None whenever LiveKit judges VAD unreliable, so it prints "n/a"
+    # rather than 0 — a 0 would read as "no delay" when it means "unknown".
+    turn: dict = {}
 
     @session.on("metrics_collected")
-    def _on_metrics(ev):
+    def _on_metrics(ev) -> None:
         m = ev.metrics
         if isinstance(m, metrics.EOUMetrics):
-            # 0.0 is the library's "couldn't measure" sentinel, so treat it as missing.
             turn["eou"] = m.end_of_utterance_delay or None
         elif isinstance(m, metrics.LLMMetrics):
             turn["llm"] = m.ttft
         elif isinstance(m, metrics.TTSMetrics):
-            eou, llm = turn.get("eou"), turn.get("llm", 0.0)
+            eou = turn.get("eou")
+            llm = turn.get("llm", 0.0)
             logger.info(
                 "LATENCY reply=%.0fms (llm_ttft=%.0f + tts_ttfb=%.0f), turn_detect=%s",
                 (llm + m.ttfb) * 1000,
@@ -179,6 +328,10 @@ async def my_agent(ctx: JobContext):
         agent=Assistant(),
         room=ctx.room,
         room_options=room_io.RoomOptions(
+            # A helpline "close call" should end the room for the caller too,
+            # not merely disconnect the agent participant.
+            delete_room_on_close=True,
+            text_input=room_io.TextInputOptions(text_input_cb=_on_text_input),
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=lambda params: (
                     noise_cancellation.BVCTelephony()
@@ -192,6 +345,10 @@ async def my_agent(ctx: JobContext):
 
     # Join the room and connect to the user
     await ctx.connect()
+
+    # Greet only after the caller is actually subscribed, so the opening line
+    # isn't played to an empty room.
+    await session.say(GREETING, allow_interruptions=True)
 
 
 if __name__ == "__main__":

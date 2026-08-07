@@ -33,14 +33,14 @@ export interface AppConfig {
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Asha Health Helpline',
-  pageTitle: 'Asha — Health Access Helpline',
+  companyName: 'Samar Health Helpline',
+  pageTitle: 'Samar — Health Access Helpline',
   pageDescription: 'A voice helpline for rural health centres, powered by Murf Falcon — the fastest TTS API',
 
   // Voice-only on purpose: this models a phone call to a health centre. Leaving
-  // camera/screen-share on made callers ask Asha to "look at" them, and typing
+  // camera/screen-share on made callers ask Samar to "look at" them, and typing
   // input is useless to a caller who can't read.
-  supportsChatInput: false,
+  supportsChatInput: true,
   supportsVideoInput: false,
   supportsScreenShare: false,
   isPreConnectBufferEnabled: true,
@@ -49,7 +49,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   accent: '#0D9488',
   logoDark: '/murf-logo-dark.svg',
   accentDark: '#2DD4BF',
-  startButtonText: 'Call Asha',
+  startButtonText: 'Call Samar',
 
   // optional: audio visualization configuration
   // audioVisualizerType: 'bar',
