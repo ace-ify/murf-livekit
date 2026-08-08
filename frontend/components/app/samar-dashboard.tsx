@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   useAgent,
@@ -11,11 +11,12 @@ import {
 import {
   Activity,
   AlertCircle,
+  BarChart2,
+  CheckCircle2,
   Clock,
-  HeartPulse,
+  FileText,
+  Folder,
   History,
-  Home,
-  Info,
   Lock,
   Mic,
   MicOff,
@@ -24,22 +25,14 @@ import {
   Radio,
   RotateCcw,
   Settings,
-  ShieldCheck,
+  Shield,
   Sparkles,
   Stethoscope,
-  User,
   Volume2,
-  VolumeX,
 } from 'lucide-react';
-import { AgentAudioVisualizerAura } from '@/components/agents-ui/agent-audio-visualizer-aura';
-import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
+import { AgentAudioVisualizerWave } from '@/components/agents-ui/agent-audio-visualizer-wave';
 import { useInputControls } from '@/hooks/agents-ui/use-agent-control-bar';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/shadcn/utils';
-
-// ── visual tokens ─────────────────────────────────────────────────────────────
-const AURA_PRIMARY_COLOR = '#8b5cf6' as const; // rich violet
-const AURA_COLOR_SHIFT = 0.32; // shifts smoothly between violet and teal/cyan
 
 export type DashState =
   | 'ready'
@@ -50,80 +43,73 @@ export type DashState =
   | 'ended';
 
 interface StateMeta {
-  label: string;
-  sublabel: string;
-  hindiLabel: string;
-  dotColor: string;
-  glowClass: string;
-  badgeBg: string;
   badgeText: string;
-  badgeBorder: string;
+  hindiText: string;
+  dotBg: string;
+  pillBg: string;
+  pillBorder: string;
+  textColor: string;
 }
 
 const STATE_CONFIG: Record<DashState, StateMeta> = {
   ready: {
-    label: 'Ready to Connect',
-    sublabel: 'One-tap voice connection to Samar',
-    hindiLabel: 'कॉल शुरू करने के लिए तैयार',
-    dotColor: 'bg-slate-400',
-    glowClass: 'shadow-[0_0_90px_30px_rgba(139,92,246,0.12)]',
-    badgeBg: 'bg-slate-800/80',
-    badgeText: 'text-slate-300',
-    badgeBorder: 'border-slate-700/60',
+    badgeText: 'AGENT READY',
+    hindiText: 'कॉल शुरू करने के लिए तैयार',
+    dotBg: 'bg-slate-400',
+    pillBg: 'bg-white',
+    pillBorder: 'border-black',
+    textColor: 'text-black',
   },
   connecting: {
-    label: 'Connecting to PHC Helpline…',
-    sublabel: 'Establishing secure low-latency voice pipeline',
-    hindiLabel: 'हेल्पलाइन से जुड़ रहा है…',
-    dotColor: 'bg-amber-400 animate-ping',
-    glowClass: 'shadow-[0_0_120px_45px_rgba(245,158,11,0.18)]',
-    badgeBg: 'bg-amber-950/60',
-    badgeText: 'text-amber-300',
-    badgeBorder: 'border-amber-500/40',
+    badgeText: 'CONNECTING...',
+    hindiText: 'हेल्पलाइन से जुड़ रहा है...',
+    dotBg: 'bg-amber-400 animate-ping',
+    pillBg: 'bg-amber-100',
+    pillBorder: 'border-black',
+    textColor: 'text-black',
   },
   listening: {
-    label: 'Listening to you',
-    sublabel: 'Speak naturally in Hindi, Hinglish, or English',
-    hindiLabel: 'आपकी बात सुन रहे हैं… बोलिए',
-    dotColor: 'bg-emerald-400 animate-pulse',
-    glowClass: 'shadow-[0_0_140px_50px_rgba(16,185,129,0.22)]',
-    badgeBg: 'bg-emerald-950/60',
-    badgeText: 'text-emerald-300',
-    badgeBorder: 'border-emerald-500/40',
+    badgeText: 'AGENT LISTENING',
+    hindiText: 'आपकी बात सुन रहे हैं...',
+    dotBg: 'bg-emerald-400 animate-pulse',
+    pillBg: 'bg-emerald-100',
+    pillBorder: 'border-black',
+    textColor: 'text-black',
   },
   thinking: {
-    label: 'Samar is thinking…',
-    sublabel: 'Evaluating clinical guardrails & triage rules',
-    hindiLabel: 'जानकारी की जांच हो रही है…',
-    dotColor: 'bg-sky-400 animate-pulse',
-    glowClass: 'shadow-[0_0_130px_45px_rgba(56,189,248,0.2)]',
-    badgeBg: 'bg-sky-950/60',
-    badgeText: 'text-sky-300',
-    badgeBorder: 'border-sky-500/40',
+    badgeText: 'EVALUATING TRIAGE',
+    hindiText: 'जांच हो रही है...',
+    dotBg: 'bg-sky-400 animate-pulse',
+    pillBg: 'bg-sky-100',
+    pillBorder: 'border-black',
+    textColor: 'text-black',
   },
   speaking: {
-    label: 'Samar is speaking',
-    sublabel: 'Streaming response powered by Murf Falcon TTS',
-    hindiLabel: 'समर बोल रहा है…',
-    dotColor: 'bg-violet-400 animate-pulse',
-    glowClass: 'shadow-[0_0_160px_60px_rgba(139,92,246,0.28)]',
-    badgeBg: 'bg-violet-950/60',
-    badgeText: 'text-violet-300',
-    badgeBorder: 'border-violet-500/40',
+    badgeText: 'SAMAR SPEAKING',
+    hindiText: 'समर बोल रहा है...',
+    dotBg: 'bg-violet-500 animate-pulse',
+    pillBg: 'bg-violet-100',
+    pillBorder: 'border-black',
+    textColor: 'text-black',
   },
   ended: {
-    label: 'Call Ended',
-    sublabel: 'Session completed. You can start a new call anytime.',
-    hindiLabel: 'कॉल समाप्त हो गई है',
-    dotColor: 'bg-rose-400',
-    glowClass: 'shadow-[0_0_80px_25px_rgba(244,63,94,0.12)]',
-    badgeBg: 'bg-rose-950/60',
-    badgeText: 'text-rose-300',
-    badgeBorder: 'border-rose-500/40',
+    badgeText: 'CALL ENDED',
+    hindiText: 'कॉल समाप्त',
+    dotBg: 'bg-rose-500',
+    pillBg: 'bg-rose-100',
+    pillBorder: 'border-black',
+    textColor: 'text-black',
   },
 };
 
-// ── microphone permissions hook ───────────────────────────────────────────────
+// Format duration
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Microphone permission hook
 function useMicStatus() {
   const [isDenied, setIsDenied] = useState(false);
 
@@ -149,14 +135,7 @@ function useMicStatus() {
     };
   }, []);
 
-  return { isDenied, setIsDenied };
-}
-
-// ── session duration timer ────────────────────────────────────────────────────
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  return { isDenied };
 }
 
 export function SamarDashboard() {
@@ -170,7 +149,7 @@ export function SamarDashboard() {
 
   const [hasStartedOnce, setHasStartedOnce] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'transcript' | 'info'>('dashboard');
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'records' | 'history' | 'settings'>('dashboard');
 
   // Track session timer
   useEffect(() => {
@@ -190,7 +169,7 @@ export function SamarDashboard() {
     };
   }, [isConnected, hasStartedOnce]);
 
-  // Compute cohesive dashboard state
+  // Compute state
   const dashState = useMemo<DashState>(() => {
     if (!isConnected) {
       return hasStartedOnce ? 'ended' : 'ready';
@@ -214,415 +193,461 @@ export function SamarDashboard() {
   const stateMeta = STATE_CONFIG[dashState];
 
   return (
-    <div className="relative flex h-screen w-full overflow-hidden bg-[#070511] font-sans text-slate-100 antialiased selection:bg-violet-500/30">
-      {/* Background ambient radial glow */}
-      <div
-        className="pointer-events-none absolute -top-40 left-1/2 h-[600px] w-[900px] -translate-x-1/2 rounded-full bg-violet-900/15 blur-[140px] transition-all duration-1000"
-        style={{
-          background:
-            dashState === 'speaking'
-              ? 'radial-gradient(circle, rgba(139,92,246,0.22) 0%, rgba(13,148,136,0.08) 50%, transparent 80%)'
-              : dashState === 'listening'
-                ? 'radial-gradient(circle, rgba(16,185,129,0.18) 0%, rgba(139,92,246,0.08) 50%, transparent 80%)'
-                : dashState === 'connecting'
-                  ? 'radial-gradient(circle, rgba(245,158,11,0.18) 0%, transparent 70%)'
-                  : 'radial-gradient(circle, rgba(139,92,246,0.14) 0%, transparent 70%)',
-        }}
-      />
-
-      {/* ── Left Sidebar (Icon + Nav Rail) ─────────────────────────────────── */}
-      <aside className="relative z-20 flex w-16 shrink-0 flex-col items-center justify-between border-r border-white/[0.06] bg-[#0a071c]/90 py-4 backdrop-blur-md md:w-56 md:items-stretch md:px-3">
-        {/* Brand Header */}
-        <div>
-          <div className="flex items-center gap-3 px-2 py-2">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-teal-500 shadow-md shadow-violet-600/30">
-              <Stethoscope className="size-5 text-white" />
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-[#F4F4F0] font-sans text-black selection:bg-[#00F2FE] selection:text-black">
+      {/* ── Top Header Navigation Bar ──────────────────────────────────────── */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b-2 border-black bg-white px-4 md:px-6">
+        {/* Left Brand */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-8 items-center justify-center border-2 border-black bg-[#00F2FE] font-black text-black shadow-[2px_2px_0px_#000]">
+              <Stethoscope className="size-4.5 stroke-[2.5]" />
             </div>
-            <div className="hidden flex-col md:flex">
-              <div className="flex items-center gap-1.5">
-                <span className="text-base font-bold tracking-tight text-white">
-                  Samar
-                </span>
-                <span className="rounded bg-teal-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-teal-300">
-                  PHC
-                </span>
-              </div>
-              <span className="text-[11px] text-slate-400">Health Access Helpline</span>
-            </div>
+            <span className="text-lg font-black tracking-tight uppercase">
+              HEALTHVOICE <span className="text-xs font-mono font-normal opacity-70">/ SAMAR</span>
+            </span>
           </div>
 
-          {/* Nav items */}
-          <nav className="mt-6 flex flex-col gap-1">
+          {/* Navigation Links */}
+          <nav className="hidden items-center gap-2 md:flex">
             <button
-              onClick={() => setActiveTab('dashboard')}
+              onClick={() => setActiveNav('dashboard')}
               className={cn(
-                'group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all',
-                activeTab === 'dashboard'
-                  ? 'bg-violet-600/15 text-violet-300 shadow-inner'
-                  : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'
+                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
+                activeNav === 'dashboard'
+                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
+                  : 'bg-white hover:bg-slate-100'
               )}
             >
-              <Home className="size-4 shrink-0" />
-              <span className="hidden md:inline">Helpline Console</span>
-              {activeTab === 'dashboard' && (
-                <motion.div
-                  layoutId="active-nav-indicator"
-                  className="absolute left-0 top-1/2 hidden h-5 w-1 -translate-y-1/2 rounded-r-full bg-violet-400 md:block"
-                />
-              )}
+              DASHBOARD
             </button>
-
             <button
-              onClick={() => setActiveTab('transcript')}
+              onClick={() => setActiveNav('records')}
               className={cn(
-                'group relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all',
-                activeTab === 'transcript'
-                  ? 'bg-violet-600/15 text-violet-300 shadow-inner'
-                  : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'
+                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
+                activeNav === 'records'
+                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
+                  : 'bg-white hover:bg-slate-100'
               )}
             >
-              <Activity className="size-4 shrink-0" />
-              <span className="hidden md:inline">Live Triage Log</span>
-              {messages.length > 0 && (
-                <span className="ml-auto hidden rounded-full bg-violet-500/30 px-1.5 py-0.2 text-[10px] text-violet-300 md:inline">
-                  {messages.length}
-                </span>
-              )}
+              PATIENT RECORDS
             </button>
-
-            <div className="my-2 border-t border-white/[0.06]" />
-
-            {/* Future Scope Items (Clearly marked) */}
-            <div className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-normal text-slate-600 opacity-60">
-              <History className="size-4 shrink-0" />
-              <span className="hidden md:inline">Call Records</span>
-              <Lock className="ml-auto hidden size-3 md:inline" />
-            </div>
-
-            <div className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-normal text-slate-600 opacity-60">
-              <ShieldCheck className="size-4 shrink-0" />
-              <span className="hidden md:inline">PHC Directory</span>
-              <Lock className="ml-auto hidden size-3 md:inline" />
-            </div>
-
-            <div className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-xs font-normal text-slate-600 opacity-60">
-              <Settings className="size-4 shrink-0" />
-              <span className="hidden md:inline">Settings</span>
-              <Lock className="ml-auto hidden size-3 md:inline" />
-            </div>
+            <button
+              onClick={() => setActiveNav('history')}
+              className={cn(
+                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
+                activeNav === 'history'
+                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
+                  : 'bg-white hover:bg-slate-100'
+              )}
+            >
+              SESSION HISTORY
+            </button>
+            <button
+              onClick={() => setActiveNav('settings')}
+              className={cn(
+                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
+                activeNav === 'settings'
+                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
+                  : 'bg-white hover:bg-slate-100'
+              )}
+            >
+              SETTINGS
+            </button>
           </nav>
         </div>
 
-        {/* Sidebar Footer (LiveKit + Murf Falcon info) */}
-        <div className="flex flex-col gap-3">
-          <div className="hidden rounded-xl border border-white/[0.06] bg-white/[0.02] p-2.5 md:block">
-            <div className="flex items-center gap-2">
-              <Radio className="size-3.5 text-teal-400" />
-              <span className="text-[11px] font-semibold text-slate-200">
-                Murf Falcon TTS
-              </span>
-            </div>
-            <p className="mt-1 text-[10px] text-slate-400">
-              Ultra-low latency streaming voice in Hindi & English
-            </p>
+        {/* Right Status Tags */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1 text-[11px] font-mono font-bold tracking-tight shadow-[2px_2px_0px_#000]">
+            <span className={cn('size-2 border border-black', isConnected ? 'bg-[#10B981]' : 'bg-slate-300')} />
+            <span>
+              {isConnected ? 'CONNECTED: E2E SECURE (12MS)' : 'DISCONNECTED: READY'}
+            </span>
           </div>
 
-          <div className="flex items-center gap-2.5 px-2 py-1">
-            <div className="flex size-7 items-center justify-center rounded-full bg-slate-800 text-slate-300">
-              <User className="size-3.5" />
-            </div>
-            <div className="hidden flex-col md:flex">
-              <span className="text-xs font-medium text-slate-200">
-                PHC Duty Officer
-              </span>
-              <span className="text-[10px] text-teal-400">#VoiceForBharat</span>
-            </div>
-          </div>
+          <button className="flex size-8 items-center justify-center border-2 border-black bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100">
+            <Lock className="size-3.5 stroke-[2.5]" />
+          </button>
+          <button className="flex size-8 items-center justify-center border-2 border-black bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100">
+            <BarChart2 className="size-3.5 stroke-[2.5]" />
+          </button>
         </div>
-      </aside>
+      </header>
 
-      {/* ── Main Workspace ─────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex flex-1 flex-col overflow-hidden">
-        {/* Top Header Bar */}
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#070511]/80 px-4 backdrop-blur-md md:px-6">
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                'flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium backdrop-blur-md transition-colors',
-                stateMeta.badgeBg,
-                stateMeta.badgeText,
-                stateMeta.badgeBorder
-              )}
-            >
-              <span className={cn('size-2 rounded-full', stateMeta.dotColor)} />
-              <span>{stateMeta.label}</span>
-              <span className="hidden opacity-60 md:inline">|</span>
-              <span className="hidden opacity-80 md:inline">{stateMeta.hindiLabel}</span>
-            </div>
-          </div>
-
-          {/* Right Action Bar & Session Timer */}
-          <div className="flex items-center gap-3">
-            {isConnected && (
-              <div className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-slate-300">
-                <Clock className="size-3.5 text-violet-400" />
-                <span className="font-mono">{formatDuration(sessionSeconds)}</span>
-              </div>
-            )}
-
-            {/* Quick Call / Disconnect CTA */}
-            {!isConnected ? (
-              <Button
-                onClick={() => start()}
-                className="group flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-teal-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-violet-600/30 transition-all hover:scale-105 hover:from-violet-500 hover:to-teal-500"
-              >
-                <Phone className="size-3.5 transition-transform group-hover:rotate-12" />
-                <span>Call Samar</span>
-                <span className="hidden text-[10px] opacity-80 sm:inline">(कॉल करें)</span>
-              </Button>
-            ) : (
-              <Button
-                onClick={() => end()}
-                variant="destructive"
-                className="flex items-center gap-2 rounded-xl bg-rose-600/90 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-rose-600/30 hover:bg-rose-600"
-              >
-                <PhoneOff className="size-3.5" />
-                <span>End Call</span>
-                <span className="hidden text-[10px] opacity-80 sm:inline">(समाप्त)</span>
-              </Button>
-            )}
-          </div>
-        </header>
-
-        {/* ── Microphone Error Banner (if blocked) ──────────────────────────── */}
-        <AnimatePresence>
-          {isDenied && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="border-b border-rose-500/30 bg-rose-950/70 px-4 py-2.5 backdrop-blur-md"
-            >
-              <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 text-xs text-rose-200">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="size-4 shrink-0 text-rose-400" />
-                  <span>
-                    <strong>Microphone access is blocked.</strong> Samar needs microphone permission to hear your voice. Please enable microphone permissions in your browser URL bar.
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    navigator.mediaDevices
-                      ?.getUserMedia({ audio: true })
-                      .catch(() => {});
-                  }}
-                  className="shrink-0 border-rose-500/40 text-xs text-rose-200 hover:bg-rose-900/50"
-                >
-                  Retry Mic Access
-                </Button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ── Main Interactive Canvas ────────────────────────────────────────── */}
-        <main className="flex flex-1 flex-col overflow-y-auto p-4 md:flex-row md:gap-4 md:p-6">
-          {/* Center / Left: Aurora Visualizer Stage */}
-          <div className="relative flex flex-1 flex-col items-center justify-between rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.01] p-6 shadow-2xl backdrop-blur-xl">
-            {/* Top Stage Header: Speaker & Channel Status */}
-            <div className="flex w-full items-center justify-between">
+      {/* ── Microphone Error Warning Banner ────────────────────────────────── */}
+      <AnimatePresence>
+        {isDenied && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-b-2 border-black bg-[#FEF08A] px-4 py-2"
+          >
+            <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 text-xs font-bold">
               <div className="flex items-center gap-2">
-                <HeartPulse className="size-4 text-violet-400" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Rural Health Voice Pipeline
-                </span>
+                <AlertCircle className="size-4.5 text-black" />
+                <span>MICROPHONE BLOCKED: Samar cannot hear your voice until microphone permissions are enabled.</span>
               </div>
-              <div className="flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03] px-2.5 py-1 text-[11px] text-slate-300">
-                <Sparkles className="size-3 text-teal-400" />
-                <span>Hi-IN / Hinglish / English</span>
+              <button
+                onClick={() => {
+                  navigator.mediaDevices?.getUserMedia({ audio: true }).catch(() => {});
+                }}
+                className="border-2 border-black bg-white px-3 py-0.5 text-xs font-black shadow-[2px_2px_0px_#000] hover:bg-black hover:text-white"
+              >
+                RETRY ACCESS
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Main Layout Body ───────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Left Sidebar (Clinical Operator) ─────────────────────────────── */}
+        <aside className="flex w-60 shrink-0 flex-col justify-between border-r-2 border-black bg-white p-4">
+          <div>
+            {/* Operator Card */}
+            <div className="flex items-center gap-3 border-2 border-black bg-[#F8F9FA] p-3 shadow-[2px_2px_0px_#000]">
+              <div className="flex size-10 shrink-0 items-center justify-center border-2 border-black bg-[#00F2FE] font-black text-black">
+                <Stethoscope className="size-6 stroke-[2.5]" />
+              </div>
+              <div>
+                <p className="text-sm font-black tracking-tight uppercase">DR. SAMAR</p>
+                <p className="text-[10px] font-mono font-bold text-slate-600 uppercase">CLINICAL SPECIALIST</p>
               </div>
             </div>
 
-            {/* Center: Hero Aurora Waveform Orb */}
-            <div className="relative my-auto flex flex-col items-center justify-center py-6">
-              {/* Dynamic Aura Glow Ring */}
-              <div
+            {/* New Session Button */}
+            <button
+              onClick={() => {
+                if (!isConnected) start();
+              }}
+              className="mt-4 flex w-full items-center justify-center gap-2 border-2 border-black bg-[#00F2FE] py-2.5 text-xs font-black tracking-wider text-black uppercase shadow-[3px_3px_0px_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_#000] active:translate-x-1 active:translate-y-1 active:shadow-none"
+            >
+              <Phone className="size-3.5 stroke-[3]" />
+              <span>NEW SESSION</span>
+            </button>
+
+            {/* Nav Menu */}
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                onClick={() => setActiveNav('dashboard')}
                 className={cn(
-                  'relative flex items-center justify-center rounded-full transition-all duration-700',
-                  stateMeta.glowClass
+                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
+                  activeNav === 'dashboard'
+                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
+                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
                 )}
               >
-                <AgentAudioVisualizerAura
-                  size="xl"
-                  state={
-                    dashState === 'ready'
-                      ? 'disconnected'
-                      : dashState === 'ended'
-                        ? 'disconnected'
-                        : (agentState ?? 'listening')
-                  }
-                  color={
-                    dashState === 'listening'
-                      ? '#10b981' // emerald when user speaks
-                      : dashState === 'connecting'
-                        ? '#f59e0b' // amber when connecting
-                        : AURA_PRIMARY_COLOR
-                  }
-                  colorShift={AURA_COLOR_SHIFT}
-                  audioTrack={audioTrack}
-                  themeMode="dark"
-                  className="size-[250px] sm:size-[300px] md:size-[360px]"
-                />
+                <Activity className="size-4 stroke-[2.5]" />
+                <span>DASHBOARD</span>
+              </button>
 
-                {/* Overlay CTA when ready or ended */}
-                {!isConnected && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-[#070511]/40 backdrop-blur-[2px]">
-                    <motion.div
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="flex flex-col items-center gap-3 text-center"
-                    >
+              <button
+                onClick={() => setActiveNav('records')}
+                className={cn(
+                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
+                  activeNav === 'records'
+                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
+                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
+                )}
+              >
+                <Folder className="size-4 stroke-[2.5]" />
+                <span>PATIENT RECORDS</span>
+              </button>
+
+              <button
+                onClick={() => setActiveNav('history')}
+                className={cn(
+                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
+                  activeNav === 'history'
+                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
+                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
+                )}
+              >
+                <History className="size-4 stroke-[2.5]" />
+                <span>SESSION HISTORY</span>
+              </button>
+
+              <button
+                onClick={() => setActiveNav('settings')}
+                className={cn(
+                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
+                  activeNav === 'settings'
+                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
+                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
+                )}
+              >
+                <Settings className="size-4 stroke-[2.5]" />
+                <span>SETTINGS</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Pipeline Badge */}
+          <div className="border-2 border-dashed border-black bg-[#FAF9F6] p-2.5 text-[10px] font-mono">
+            <p className="font-bold text-black uppercase">VOICE STACK:</p>
+            <p className="text-slate-700">• TTS: Murf Falcon (hi-IN)</p>
+            <p className="text-slate-700">• STT: Deepgram Nova-3</p>
+            <p className="text-slate-700">• LLM: Gemini 2.0</p>
+          </div>
+        </aside>
+
+        {/* ── Main Workspace ─────────────────────────────────────────────────── */}
+        <main className="flex flex-1 flex-col overflow-y-auto p-4 md:p-6">
+          {/* Header of Main: Title + Recording tag + Timer */}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-black pb-4">
+            <div>
+              <h1 className="text-2xl font-black tracking-tight uppercase md:text-3xl">
+                ACTIVE CONSULTATION
+              </h1>
+              <p className="font-mono text-xs font-bold text-slate-700 uppercase">
+                PATIENT ID: #84932 • INTAKE SESSION • PHC RURAL TRIAGE
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 border-2 border-black bg-[#FF3366] px-3.5 py-1 text-xs font-black tracking-wider text-white uppercase shadow-[2px_2px_0px_#000]">
+                <span className="size-2 rounded-full bg-white animate-ping" />
+                <span>{isConnected ? 'RECORDING' : 'IDLE'}</span>
+              </div>
+
+              <div className="border-2 border-black bg-white px-3.5 py-1 font-mono text-sm font-black shadow-[2px_2px_0px_#000]">
+                {formatDuration(sessionSeconds)}
+              </div>
+            </div>
+          </div>
+
+          {/* Consultation Grid (Center Visualizer + Right Context) */}
+          <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+            {/* Left 2 Cols: Visualizer & Live Transcript */}
+            <div className="flex flex-col gap-5 lg:col-span-2">
+              {/* ── Voice Visualizer Card ───────────────────────────────────── */}
+              <div className="relative flex flex-col items-center justify-between border-2 border-black bg-[#F8F9FA] p-5 shadow-[4px_4px_0px_#000]">
+                {/* Agent Listening Badge on Top Left */}
+                <div className="flex w-full items-center justify-between">
+                  <div className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1 text-xs font-black uppercase shadow-[2px_2px_0px_#000]">
+                    <Mic className="size-3.5 stroke-[2.5]" />
+                    <span>{stateMeta.badgeText}</span>
+                    <span className="font-normal opacity-60">|</span>
+                    <span className="font-sans text-[11px] font-bold text-slate-700">
+                      {stateMeta.hindiText}
+                    </span>
+                  </div>
+
+                  <span className="font-mono text-[11px] font-bold uppercase text-slate-600">
+                    CHANNEL: STEREO 48KHZ
+                  </span>
+                </div>
+
+                {/* LiveKit Wave Sine Shader Visualizer */}
+                <div className="relative my-4 flex h-[220px] w-full max-w-[480px] items-center justify-center sm:h-[250px] md:h-[280px]">
+                  <AgentAudioVisualizerWave
+                    size="xl"
+                    state={
+                      dashState === 'ready'
+                        ? 'disconnected'
+                        : dashState === 'ended'
+                          ? 'disconnected'
+                          : (agentState ?? 'listening')
+                    }
+                    color={
+                      dashState === 'speaking'
+                        ? '#6D28D9' // deep rich violet
+                        : dashState === 'listening'
+                          ? '#047857' // deep emerald
+                          : dashState === 'thinking'
+                            ? '#0369A1' // deep sapphire blue
+                            : dashState === 'connecting'
+                              ? '#D97706' // deep amber
+                              : '#0891B2' // deep dark cyan
+                    }
+                    colorShift={0.3}
+                    lineWidth={3}
+                    blur={0.2}
+                    audioTrack={audioTrack}
+                    className="size-full"
+                  />
+
+                  {/* Ready CTA Overlay when disconnected */}
+                  {!isConnected && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#F8F9FA]/75 backdrop-blur-[1.5px]">
                       <button
                         onClick={() => start()}
-                        className="group flex size-20 items-center justify-center rounded-full bg-gradient-to-tr from-violet-600 to-teal-500 text-white shadow-xl shadow-violet-600/40 transition-all hover:scale-110 active:scale-95"
+                        className="group flex items-center gap-2.5 border-2 border-black bg-[#00F2FE] px-6 py-3 text-xs font-black uppercase text-black shadow-[4px_4px_0px_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[2px_2px_0px_#000] active:translate-x-1 active:translate-y-1 active:shadow-none"
                       >
                         {hasStartedOnce ? (
-                          <RotateCcw className="size-8 transition-transform group-hover:rotate-180" />
+                          <>
+                            <RotateCcw className="size-4 stroke-[3] transition-transform group-hover:-rotate-90" />
+                            <span>RECONNECT SESSION (पुनः जुड़ें)</span>
+                          </>
                         ) : (
-                          <Phone className="size-8 transition-transform group-hover:scale-110" />
+                          <>
+                            <Phone className="size-4 stroke-[3] transition-transform group-hover:scale-110" />
+                            <span>START CONSULTATION (कॉल शुरू करें)</span>
+                          </>
                         )}
                       </button>
-                      <span className="text-xs font-semibold text-slate-200">
-                        {hasStartedOnce ? 'Call Again (पुनः कॉल)' : 'Tap to Start Call'}
-                      </span>
-                    </motion.div>
-                  </div>
-                )}
-              </div>
-
-              {/* Sub-Aura Status Badge */}
-              <div className="mt-4 flex flex-col items-center gap-1">
-                <div className="flex items-center gap-2">
-                  <span className={cn('size-2.5 rounded-full', stateMeta.dotColor)} />
-                  <span className="text-sm font-semibold text-slate-100">
-                    {stateMeta.label}
-                  </span>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xs text-slate-400">{stateMeta.sublabel}</span>
-              </div>
-            </div>
 
-            {/* Bottom Controls Bar (LiveKit Track Controls) */}
-            <div className="flex w-full flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-4 sm:flex-row">
-              {/* Mic Toggle & Audio Indicator */}
-              <div className="flex items-center gap-2">
-                {isConnected && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => microphoneToggle.toggle()}
+                {/* Bottom Voice Controls */}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      if (isConnected) microphoneToggle.toggle();
+                    }}
+                    disabled={!isConnected}
                     className={cn(
-                      'flex items-center gap-2 rounded-xl border text-xs font-medium transition-all',
+                      'flex items-center gap-2 border-2 border-black px-4 py-1.5 text-xs font-black uppercase shadow-[2px_2px_0px_#000] transition-all disabled:opacity-50',
                       microphoneToggle.enabled
-                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                        : 'border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20'
+                        ? 'bg-white hover:bg-slate-100'
+                        : 'bg-[#FF3366] text-white hover:bg-[#EF4444]'
                     )}
                   >
                     {microphoneToggle.enabled ? (
                       <>
-                        <Mic className="size-3.5" />
-                        <span>Mute Mic</span>
+                        <Mic className="size-4 stroke-[2.5]" />
+                        <span>MUTE MIC</span>
                       </>
                     ) : (
                       <>
-                        <MicOff className="size-3.5" />
-                        <span>Unmute Mic</span>
+                        <MicOff className="size-4 stroke-[2.5]" />
+                        <span>UNMUTE MIC</span>
                       </>
                     )}
-                  </Button>
-                )}
+                  </button>
 
-                <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-xs text-slate-400">
-                  <Info className="size-3 text-teal-400" />
-                  <span>Speech-to-Text: Deepgram Nova-3</span>
+                  <button
+                    onClick={() => {
+                      if (isConnected) end();
+                    }}
+                    disabled={!isConnected}
+                    className="flex items-center gap-2 border-2 border-black bg-[#FF3366] px-4 py-1.5 text-xs font-black text-white uppercase shadow-[2px_2px_0px_#000] transition-all hover:bg-[#EF4444] disabled:opacity-50"
+                  >
+                    <PhoneOff className="size-4 stroke-[2.5]" />
+                    <span>END CALL</span>
+                  </button>
                 </div>
               </div>
 
-              {/* Suggested Triage Prompts */}
-              {!isConnected && (
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                  <span className="text-slate-500">Ask:</span>
-                  <span className="rounded-md bg-white/[0.04] px-2 py-0.5 text-slate-300">
-                    "Mere bete ko bukhar hai"
-                  </span>
-                  <span className="rounded-md bg-white/[0.04] px-2 py-0.5 text-slate-300">
-                    "Vaccine schedule for newborn"
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Column: Live Transcript & Clinical Context Card */}
-          <div className="mt-4 flex w-full flex-col gap-4 md:mt-0 md:w-80 lg:w-96">
-            {/* Live Triage Log Panel */}
-            <div className="flex h-[360px] flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl">
-              <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <Activity className="size-4 text-teal-400" />
-                  <span className="text-xs font-semibold text-slate-200">
-                    Live Conversation Transcript
-                  </span>
-                </div>
-                <span className="rounded bg-teal-500/10 px-1.5 py-0.5 text-[10px] font-medium text-teal-300">
-                  Real-time
-                </span>
-              </div>
-
-              {/* Chat Transcript Area */}
-              <div className="flex-1 overflow-y-auto p-3">
-                {messages.length === 0 ? (
-                  <div className="flex h-full flex-col items-center justify-center p-6 text-center text-slate-500">
-                    <Activity className="mb-2 size-8 text-slate-600 opacity-40" />
-                    <p className="text-xs font-medium text-slate-400">
-                      No speech recorded yet
-                    </p>
-                    <p className="mt-1 text-[11px] text-slate-600">
-                      Start speaking when connected. The live transcript in Hindi & English will appear here.
-                    </p>
+              {/* ── Live Transcript Card ────────────────────────────────────── */}
+              <div className="border-2 border-black bg-white p-4 shadow-[4px_4px_0px_#000]">
+                <div className="flex items-center justify-between border-b-2 border-black pb-2">
+                  <div className="flex items-center gap-2">
+                    <FileText className="size-4 stroke-[2.5]" />
+                    <span className="font-mono text-xs font-black tracking-wider uppercase">
+                      LIVE TRANSCRIPT
+                    </span>
                   </div>
-                ) : (
-                  <AgentChatTranscript
-                    agentState={agentState}
-                    messages={messages}
-                    className="w-full text-xs"
-                  />
-                )}
+                  <span className="font-mono text-[10px] font-bold uppercase text-slate-500">
+                    DEVANAGARI & EN SPEECH
+                  </span>
+                </div>
+
+                {/* Messages Container */}
+                <div className="mt-3 flex max-h-56 flex-col gap-3 overflow-y-auto pr-1">
+                  {messages.length === 0 ? (
+                    <div className="flex flex-col gap-2 py-4 text-xs font-medium text-slate-700">
+                      <div className="flex items-start gap-2">
+                        <span className="border-2 border-black bg-[#00F2FE] px-2 py-0.5 font-mono text-[10px] font-black text-black shadow-[1px_1px_0px_#000]">
+                          DR. ARIS / SAMAR:
+                        </span>
+                        <p className="font-medium text-black">
+                          "नमस्ते! मैं प्राथमिक स्वास्थ्य केंद्र से समर बोल रहा हूँ। आप अपनी समस्या बताइए।"
+                        </p>
+                      </div>
+
+                      <div className="flex items-start gap-2">
+                        <span className="font-mono text-[10px] font-black text-slate-700 uppercase">
+                          PATIENT (CALLER):
+                        </span>
+                        <p className="text-slate-800">
+                          "Meri beti ko do din se tez bukhar aur sar dard hai..."
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    messages.map((m) => {
+                      const isUser = m.from?.isLocal;
+                      return (
+                        <div key={m.id} className="flex items-start gap-2 text-xs">
+                          {isUser ? (
+                            <span className="shrink-0 font-mono text-[10px] font-black uppercase text-slate-700">
+                              PATIENT:
+                            </span>
+                          ) : (
+                            <span className="shrink-0 border-2 border-black bg-[#00F2FE] px-1.5 py-0.2 font-mono text-[10px] font-black text-black shadow-[1px_1px_0px_#000]">
+                              SAMAR:
+                            </span>
+                          )}
+                          <p className="font-medium text-black">{m.message}</p>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Clinical Guardrails & Engine Summary Card */}
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 text-xs backdrop-blur-xl">
-              <div className="flex items-center gap-2 text-slate-300">
-                <ShieldCheck className="size-4 text-teal-400" />
-                <span className="font-semibold">Guardrails & Track Specs</span>
+            {/* Right Col: Patient Context & Extracted Entities ─────────────────── */}
+            <div className="flex flex-col gap-5">
+              {/* ── Patient Context Card ─────────────────────────────────────── */}
+              <div className="border-2 border-black bg-white shadow-[4px_4px_0px_#000]">
+                <div className="border-b-2 border-black bg-black px-3 py-1.5 text-xs font-black tracking-widest text-white uppercase">
+                  PATIENT CONTEXT
+                </div>
+                <div className="p-3.5">
+                  <div className="flex justify-between border-b border-black/20 pb-2 font-mono text-xs font-bold">
+                    <span className="text-slate-600 uppercase">VITALS LAST CHECK</span>
+                    <span className="text-black">OCT 24, 2026</span>
+                  </div>
+
+                  <div className="flex justify-between border-b border-black/20 py-2 font-mono text-xs font-bold">
+                    <span className="text-slate-600 uppercase">BP</span>
+                    <span className="text-black">120/80</span>
+                  </div>
+
+                  <div className="flex items-center justify-between py-2 font-mono text-xs font-bold">
+                    <span className="text-slate-600 uppercase">SCHEME / ALLERGIES</span>
+                    <span className="border border-black bg-[#FF3366] px-2 py-0.5 font-mono text-[10px] font-black text-white uppercase shadow-[1px_1px_0px_#000]">
+                      PMJAY / AYUSHMAN
+                    </span>
+                  </div>
+
+                  <button className="mt-3 w-full border-2 border-black bg-white py-1.5 text-center text-xs font-black tracking-wider uppercase shadow-[2px_2px_0px_#000] hover:bg-slate-100">
+                    VIEW FULL PROFILE
+                  </button>
+                </div>
               </div>
-              <ul className="mt-2.5 space-y-1.5 text-[11px] text-slate-400">
-                <li className="flex items-start gap-1.5">
-                  <span className="font-bold text-teal-400">✓</span>
-                  <span><strong>108 Emergency:</strong> Immediate triage escalation</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <span className="font-bold text-teal-400">✓</span>
-                  <span><strong>No Dosages:</strong> Doctor-referred medicine advice</span>
-                </li>
-                <li className="flex items-start gap-1.5">
-                  <span className="font-bold text-teal-400">✓</span>
-                  <span><strong>TTS:</strong> Murf Falcon streaming voice</span>
-                </li>
-              </ul>
+
+              {/* ── Extracted Entities Card ──────────────────────────────────── */}
+              <div className="border-2 border-black bg-white shadow-[4px_4px_0px_#000]">
+                <div className="border-b-2 border-black bg-black px-3 py-1.5 text-xs font-black tracking-widest text-white uppercase">
+                  EXTRACTED ENTITIES
+                </div>
+                <div className="flex flex-col gap-2.5 p-3.5">
+                  <div className="flex items-center justify-between border-2 border-black bg-[#F0FDF4] p-2 font-mono text-[11px] font-bold shadow-[1px_1px_0px_#000]">
+                    <span>SYMPTOM: HIGH FEVER</span>
+                    <CheckCircle2 className="size-3.5 text-[#10B981]" />
+                  </div>
+
+                  <div className="flex items-center justify-between border-2 border-black bg-[#F0FDF4] p-2 font-mono text-[11px] font-bold shadow-[1px_1px_0px_#000]">
+                    <span>ESCALATION: PHC VISIT TODAY</span>
+                    <CheckCircle2 className="size-3.5 text-[#10B981]" />
+                  </div>
+
+                  <div className="flex items-center justify-between border-2 border-dashed border-black bg-[#FAF9F6] p-2 font-mono text-[11px] font-bold text-slate-600">
+                    <span className="italic">ANALYZING SEVERITY...</span>
+                    <RotateCcw className="size-3.5 animate-spin" />
+                  </div>
+
+                  <button className="mt-1 w-full border-2 border-black bg-[#00F2FE] py-2 text-center text-xs font-black tracking-wider uppercase shadow-[3px_3px_0px_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_#000]">
+                    GENERATE DRAFT NOTE
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </main>

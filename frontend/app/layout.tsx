@@ -64,11 +64,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         <title>{pageTitle}</title>
         <meta name="description" content={pageDescription} />
       </head>
-      {/* The Samar dashboard is always dark — force dark class on html */}
-      <body className="overflow-hidden dark">
+      <body className="overflow-hidden bg-[#F4F4F0] text-black">
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="light"
           enableSystem={false}
           disableTransitionOnChange
         >
