@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -92,68 +91,10 @@ SILENCE_RE_PROMPTS = [
     "I'll close the call now. Please call us back whenever you're ready. Take care.",
 ]
 
-# Latin fragments Gemini leaves inside Devanagari words, and their Devanagari
-# spellings. Only applied to words that already contain Devanagari, so an
-# all-English reply is left alone.
-_LOANWORDS = {
-    "acetamol": "ेसिटामोल",
-    "paracetamol": "पैरासिटामोल",
-    "fallen": "फेंट",
-    "fever": "बुखार",
-    "doctor": "डॉक्टर",
-    "appointment": "अपॉइंटमेंट",
-    "help": "हेल्प",
-    "tablet": "टैबलेट",
-    "ulti": "उल्टी",
-    "check": "चेक",
-    "normal": "नॉर्मल",
-    "high": "हाई",
-}
-_DEVANAGARI = re.compile(r"[ऀ-ॿ]")
-_LATIN_RUN = re.compile(r"[A-Za-z]+")
-
-
-def _fix_script_mix(s: str) -> str:
-    """Rewrite Latin fragments inside a Devanagari reply so Murf can read them.
-
-    Only fires when the text is already mostly Devanagari — a pure English or
-    Latin-script Hinglish reply is left untouched. Unknown fragments are kept
-    as-is: a mispronounced word beats a silently deleted one.
-    """
-    if len(_DEVANAGARI.findall(s)) <= len(_LATIN_RUN.findall(s)):
-        return s
-    out = _LATIN_RUN.sub(lambda m: _LOANWORDS.get(m.group(0).lower(), m.group(0)), s)
-    if out != s:
-        logger.info("SCRIPTFIX %r -> %r", s, out)
-    return out
-
 
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(instructions=SYSTEM_PROMPT)
-
-    async def tts_node(self, text, model_settings):
-        # Gemini sometimes leaves a Latin fragment inside a Devanagari word
-        # ("परacetamol", "फीक fallen"), which Murf reads letter-by-letter. Fix it
-        # here rather than in the transcript, so the caller still sees what was
-        # generated. Buffer the trailing partial word so a fragment split across
-        # two chunks is still matched; everything before it passes straight
-        # through, spacing untouched.
-        async def repaired():
-            tail = ""
-            async for chunk in text:
-                buf = tail + chunk
-                cut = max(buf.rfind(" "), buf.rfind("\n"))
-                if cut == -1:
-                    tail = buf
-                    continue
-                tail = buf[cut + 1 :]
-                yield _fix_script_mix(buf[: cut + 1])
-            if tail:
-                yield _fix_script_mix(tail)
-
-        async for frame in Agent.default.tts_node(self, repaired(), model_settings):
-            yield frame
 
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.
