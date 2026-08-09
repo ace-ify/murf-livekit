@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { toast } from 'sonner';
 import {
   useAgent,
   useChat,
@@ -299,10 +300,28 @@ export function SamarDashboard() {
   // Navbar Theme state
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [isForgetting, setIsForgetting] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleForgetMe = async () => {
+    try {
+      setIsForgetting(true);
+      const res = await fetch('/api/forget', { method: 'POST' });
+      if (res.ok) {
+        toast.success('Personal consultation memory erased from database.');
+      } else {
+        toast.error('Failed to erase memory.');
+      }
+    } catch (err) {
+      console.error('Forget me error:', err);
+      toast.error('Error erasing records.');
+    } finally {
+      setIsForgetting(false);
+    }
+  };
 
   const isDark = mounted && (theme === 'dark' || resolvedTheme === 'dark');
 
@@ -868,8 +887,24 @@ export function SamarDashboard() {
             </nav>
           </div>
 
-          {/* Right: Language Toggle, Theme Toggle, View GitHub */}
-          <div className="flex items-center gap-2">
+          {/* Right: Forget Me link, Language Toggle, Theme Toggle, View GitHub */}
+          <div className="flex items-center gap-2.5">
+            {/* Underlined Forget Me Button */}
+            <button
+              onClick={handleForgetMe}
+              disabled={isForgetting}
+              className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-xs font-bold text-rose-600 underline decoration-rose-400 underline-offset-4 transition-all hover:text-rose-700 hover:decoration-rose-600 active:scale-95 disabled:opacity-50 dark:text-rose-400 dark:decoration-rose-500 dark:hover:text-rose-300"
+              title="Permanently wipe your stored health consultation data"
+              aria-label="Forget My Memory"
+            >
+              {isForgetting ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="size-3.5 stroke-[2.2]" />
+              )}
+              <span>Forget Me</span>
+            </button>
+
             {/* Language selector — add entries to LANGUAGES to support more */}
             <div className="relative">
               <button

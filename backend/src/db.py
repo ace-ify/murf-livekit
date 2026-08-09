@@ -139,13 +139,31 @@ async def save_caller(
     }
 
 
-async def delete_caller(user_id: str, db_path: str = DEFAULT_DB_PATH) -> bool:
-    """Delete caller record (forget me feature)."""
-    if not user_id:
+async def delete_caller(
+    user_id: str = "", name: str = "", db_path: str = DEFAULT_DB_PATH
+) -> bool:
+    """Delete caller record (forget me feature) by user_id or name."""
+    clean_id = (user_id or "").strip()
+    clean_name = (name or "").strip()
+    if not clean_id and not clean_name:
         return False
     _ensure_db_dir(db_path)
     async with aiosqlite.connect(db_path) as db:
-        cursor = await db.execute("DELETE FROM callers WHERE user_id = ?", (user_id,))
+        if clean_id and clean_name:
+            cursor = await db.execute(
+                "DELETE FROM callers WHERE user_id = ? OR LOWER(name) = LOWER(?) OR name = ?",
+                (clean_id, clean_name, clean_name),
+            )
+        elif clean_id:
+            cursor = await db.execute(
+                "DELETE FROM callers WHERE user_id = ? OR LOWER(name) = LOWER(?) OR name = ?",
+                (clean_id, clean_id, clean_id),
+            )
+        else:
+            cursor = await db.execute(
+                "DELETE FROM callers WHERE LOWER(name) = LOWER(?) OR name = ?",
+                (clean_name, clean_name),
+            )
         await db.commit()
         return cursor.rowcount > 0
 

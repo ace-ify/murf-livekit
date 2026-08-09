@@ -61,3 +61,29 @@ async def test_assistant_lookup_and_save_tools(test_db: str):
 
     lookup_res3 = await assistant.lookup_caller(ctx, user_id="user_caller_001")
     assert "No previous record found" in lookup_res3
+
+
+@pytest.mark.asyncio
+async def test_search_health_guidelines_rag():
+    assistant = Assistant()
+    ctx = MagicMock()
+
+    # Query 1: PMJAY Ayushman Bharat
+    pmjay_res = await assistant.search_health_guidelines(
+        ctx, query="Ayushman Bharat coverage amount 5 lakh"
+    )
+    assert "5 Lakh" in pmjay_res
+    assert "Hospital" in pmjay_res or "hospitalization" in pmjay_res.lower()
+
+    # Query 2: Universal Immunization Programme
+    vaccine_res = await assistant.search_health_guidelines(
+        ctx, query="6 weeks pentavalent rotavirus polio vaccine"
+    )
+    assert "Pentavalent" in vaccine_res
+    assert "Polio" in vaccine_res or "OPV" in vaccine_res
+
+    # Query 3: JSSK Free Delivery
+    jssk_res = await assistant.search_health_guidelines(
+        ctx, query="Janani Shishu Suraksha free delivery pregnant women"
+    )
+    assert "Institutional Delivery" in jssk_res or "Free" in jssk_res

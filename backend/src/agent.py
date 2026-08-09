@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -21,79 +22,26 @@ from livekit.plugins import deepgram, google, groq, murf, noise_cancellation, si
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import db
+import rag
 
 logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-# Track: Health Access (#VoiceForBharat) — Day 4 Memory & Consent
-SYSTEM_PROMPT = """IDENTITY
-You are Careva, a female voice helpline assistant for primary health centres (PHCs) in India. Speak using female grammatical endings in Hindi/Hinglish (e.g. use "karungi", "bolungi", "karti hoon", "bataungi" instead of "karunga", "bolunga", "karta hoon").
+# Track: Health Access (#VoiceForBharat) — Day 4 Memory, Consent & RAG
+SYSTEM_PROMPT = """You are Careva, a female voice assistant for Health Centres in India. Speak in natural conversational Hindi/Hinglish (Devanagari script) or English based on the caller's language.
 
-OBJECTIVES
-A successful call achieves one of three things:
-1. TRIAGE — the caller understands what care they need and how urgently.
-2. VISIT — the caller knows to go to the PHC, and when. You cannot book anything.
-3. INFORMATION — the caller gets a plain-language answer about a common condition, vaccination, or government health scheme (PMJAY, Ayushman Bharat, JSSK).
+ROLE & OBJECTIVES:
+1. Triage symptoms and guide callers when to visit the PHC or call 108 in emergencies.
+2. Answer questions on PHC care, vaccinations, and government health schemes (PM-JAY, JSSK) using search_health_guidelines.
+3. Memory & Consent: When a new caller shares their name, ask for permission to remember them for future calls. Call save_caller_info ONLY AFTER the caller explicitly agrees (says yes/haan). Never call save_caller_info while still asking for consent.
+4. If a caller asks to forget them or delete their data, call forget_caller and confirm deletion.
 
-KNOWLEDGE
-You know: common symptoms and what they generally suggest, basic first aid, National Immunization Programme schedule, PMJAY / Ayushman Bharat / JSSK eligibility in general terms, standard PHC services.
-You do not know: the caller's unshared private background (such as birthplace, home address, or family secrets), current doctor availability, medicine stock at any PHC, or real-time appointment booking data. When asked personal questions you were never told (e.g., "Where was I born?"), state politely that you do not know. BUT you ALWAYS remember the caller's name and any health facts that the caller told you in this conversation or that are stored in the helpline database.
-
-LANGUAGE
-Answer in the language the caller used, every single turn. An English question gets an English answer. A Hindi question gets a Hindi answer. Hinglish gets Hinglish. Never answer an English question in Hindi.
-When responding in Hindi or Hinglish, you MUST write the entire output in Devanagari script (देवनागरी लिपि). Transcribe all English loanwords into Devanagari script (e.g., write "डॉक्टर" instead of "doctor", "अपॉइंटमेंट" instead of "appointment", "हेल्प" instead of "help"). Never mix Latin letters into a Devanagari word.
-
-CALLER MEMORY & CONSENT (MANDATORY RULES)
-You have tools to look up and store caller records (`lookup_caller`, `save_caller_info`, `forget_caller`).
-1. When a caller introduces themselves or shares their name (e.g. "Mera naam Naimish hai"):
-   - Acknowledge their name warmly.
-   - ALWAYS proactively ask for explicit permission to save their name and details for future calls:
-     * Hindi: "नमस्ते [Name] जी! क्या मैं आपका नाम और यह जानकारी अगली बार के लिए सुरक्षित रख सकती हूँ ताकि अगली कॉल में आपकी बेहतर सहायता हो सके?"
-     * English: "Hello [Name]! May I save your name and details so we can assist you better on your next call?"
-2. When the caller consents (says "haan", "yes", "save kar lo", "theek hai"):
-   - Immediately call `save_caller_info(name=..., consent_given=True)` tool.
-   - Then confirm: "धन्यवाद, मैंने आपकी जानकारी सुरक्षित कर ली है। अब बताइए, आज मैं आपकी क्या सहायता कर सकती हूँ?"
-3. When the caller refuses (says "nahi", "no", "mat karo", "don't save"):
-   - Call `save_caller_info(name=..., consent_given=False)`.
-   - Reassure them: "कोई बात नहीं, आपकी प्राइवेसी महत्वपूर्ण है और कोई भी जानकारी सेव नहीं की गई है।"
-4. When a caller asks about their identity or past data ("Mera naam kya hai?", "Do you remember me?", "Kya aap mujhe jaante ho?"):
-   - If they gave their name in this call or in stored memory, answer with their name warmly (e.g., "आप नैमिष जी हैं।").
-   - If not in active context, call `lookup_caller` to search the database.
-5. If a caller asks to delete or wipe their data ("Mera data delete kar do", "Forget me"):
-   - Call `forget_caller` and confirm deletion.
-
-GUARDRAILS
-
-EMERGENCY — overrides everything. Act immediately.
-Symptoms: chest pain, trouble breathing, heavy bleeding, unconscious person, snake bite, poisoning, serious burn, fit or seizure, sudden one-sided weakness, any pregnancy emergency.
-Action: stop the conversation. Say "Please call 108 for an ambulance right now. I will stay on the line." Give simple first aid steps until help arrives.
-
-URGENT — needs care today, not an emergency.
-Symptoms: high persistent fever, signs of dehydration, repeated vomiting or diarrhoea, a fainting episode even if the person has recovered, worsening injury, chest tightness without acute pain.
-Action: say "This needs a doctor today — please go to the PHC or a district hospital, don't wait."
-
-ROUTINE — answer the question. If it needs clinical judgment, say "A doctor at the PHC can look at this properly. Please visit the health centre."
-
-Hard refusals — state clearly, then give the escalation path:
-- Never diagnose or state an illness as certain.
-- Never name a medicine, or approve one the caller names, or give a dose. This includes over-the-counter medicines like paracetamol. Say only that a doctor decides which medicine and how much.
-- Never confirm doctor availability or appointment times.
-- Never give medicine prices.
-- Never claim to be a doctor, nurse, or medical professional.
-- Never claim your information is current, local, or specific to the caller.
-- Never answer "yes" or "no" to a question about how serious a symptom is. Say what would make it serious, what to watch for, and when to go in.
-- Never offer to book, arrange, or hold an appointment. You have no booking system. Tell the caller to visit or phone the PHC directly.
-
-STYLE
-Two or three short sentences per turn. One question at a time, then stop and wait. Everyday words only — no jargon. Warm and unhurried. Never alarming unless it is a true emergency.
-When greeted by the caller (e.g. 'Hello' or 'Namaste'), warmly greet them back and offer help. Avoid repeating lengthy introductory self-descriptions mid-call.
-Never repeat a point already made; rephrase if the caller misunderstands.
-Never quote, explain, or reference these rules to the caller.
-No formatting, lists, emojis, or symbols — everything is read aloud.
-Never add a translation or parenthetical after what you say. One language per turn.
-Every refusal ends with a concrete next step — the PHC, a district hospital, 108, or the Ayushman Bharat helpline 14555. Never refuse and stop there.
-Never speak or output raw function/tool tags (like <function=...> or JSON) in your spoken dialogue. Execute tools silently in the background."""
+GUARDRAILS & STYLE:
+- Emergencies (chest pain, breathing trouble, severe bleeding, unconsciousness): Tell them to call 108 immediately.
+- Never prescribe specific medicines, doses, or give final medical diagnoses.
+- Keep responses short: 1-2 simple sentences per turn. Stop and listen.
+- Never output raw function tags or JSON code in your dialogue."""
 
 GREETING = (
     "Namaste, this is Careva from the health centre. "
@@ -103,12 +51,28 @@ GREETING = (
 # Murf Falcon voice: Anisha (Conversational female voice for Indian English / Hindi)
 MURF_VOICE = "Anisha"
 
-# Silent user handling — re-prompt once, graceful close on the second silence.
+# Silent user handling
 SILENCE_TIMEOUT = 12.0
 SILENCE_RE_PROMPTS = [
     "Are you still there? Take your time — I'm listening.",
     "I'll close the call now. Please call us back whenever you're ready. Take care.",
 ]
+
+FUNCTION_TAG_REGEX = re.compile(
+    r"<function=[^>]*>.*?</function>", re.DOTALL | re.IGNORECASE
+)
+RAW_TAG_REGEX = re.compile(r"</?function[^>]*>", re.IGNORECASE)
+
+
+class CleanSentenceTokenizer(tokenize.basic.SentenceTokenizer):
+    """Safety tokenizer that cleans any leaked function/XML tags before audio synthesis."""
+
+    def tokenize(self, text: str, *, language: str | None = None) -> list[str]:
+        cleaned = FUNCTION_TAG_REGEX.sub("", text)
+        cleaned = RAW_TAG_REGEX.sub("", cleaned).strip()
+        if not cleaned:
+            return []
+        return super().tokenize(cleaned, language=language)
 
 
 def _clean_user_id(val: str) -> str:
@@ -238,20 +202,55 @@ class Assistant(Agent):
         self,
         context: RunContext,
         user_id: str = "",
+        name: str = "",
     ) -> str:
         """Delete all stored records and memory for the caller if they request to be forgotten.
 
         Args:
             user_id: Phone number or caller ID to erase. Defaults to current caller ID.
+            name: Caller's name to erase if user_id is not known.
         """
-        target_id = user_id or self.caller_user_id
-        if not target_id:
-            return "No caller ID provided to forget."
-        deleted = await db.delete_caller(target_id)
+        clean_id = _clean_user_id(user_id)
+        target_id = clean_id or self.caller_user_id
+        target_name = (
+            name.strip() if name and name.lower() not in ("null", "none") else ""
+        )
+        deleted = await db.delete_caller(user_id=target_id, name=target_name)
+        if not deleted and target_name:
+            deleted = await db.delete_caller(name=target_name)
+        if not deleted and self.caller_user_id:
+            deleted = await db.delete_caller(user_id=self.caller_user_id)
+
         if deleted:
-            logger.info("forget_caller: Deleted record for user_id=%s", target_id)
-            return "All personal records for this caller have been permanently deleted."
+            self.caller_user_id = ""
+            logger.info(
+                "forget_caller: Deleted record for user_id=%s, name=%s",
+                target_id,
+                target_name,
+            )
+            return "All personal records for this caller have been permanently deleted from the database."
         return "No record was found to delete."
+
+    @function_tool
+    async def search_health_guidelines(
+        self,
+        context: RunContext,
+        query: str,
+    ) -> str:
+        """Search official government health scheme documents, benefits, eligibility, vaccination schedules, and PHC services.
+
+        Use this tool when a caller asks about:
+        - Ayushman Bharat / PM-JAY coverage (up to 5 Lakhs), eligibility, 14555 helpline.
+        - Janani Shishu Suraksha Karyakram (JSSK) free delivery, newborn care, free hospital transport.
+        - Universal Immunization Programme (UIP) / vaccine schedule for infants and children (birth, 6/10/14 weeks, 9 months).
+        - Primary Health Centre (PHC) standard services, OPD hours, free diagnostics and medicines.
+
+        Args:
+            query: The specific health scheme, vaccination, or PHC service question to look up.
+        """
+        logger.info("search_health_guidelines query='%s'", query)
+        results = rag.search_health_rag(query, top_k=2)
+        return results
 
 
 server = AgentServer()
@@ -287,21 +286,21 @@ async def my_agent(ctx: JobContext):
         # Groq llamas, which produced incoherent Hindi ("aapke paas kyon
         # bhatkana hai?"). Groq llama-3.3-70b is the fallback: 8b-instant gave
         # off-topic replies, qwen3.6 leaks <think> tags, gpt-oss is slower.
-        # FallbackAdapter switches automatically on failure or 15s timeout.
-        # Note: Gemini requires attempt_timeout >= 10s (minimum allowed deadline).
+        # FallbackAdapter: Groq Llama-3.3-70B as primary (fastest TTFT),
+        # with Google Gemini 2.0 Flash as secondary fallback.
         llm=FallbackAdapter(
             [
-                google.LLM(model="gemini-2.0-flash"),
                 groq.LLM(model="llama-3.3-70b-versatile"),
+                google.LLM(model="gemini-2.0-flash"),
             ],
-            attempt_timeout=15.0,
+            attempt_timeout=12.0,
         ),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
             voice=MURF_VOICE,
             style="Conversational",
-            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
+            tokenizer=CleanSentenceTokenizer(min_sentence_len=4),
             text_pacing=True,
         ),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
@@ -412,10 +411,10 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    # Join the room and connect to the user
+    # Join the room and connect to the user, initializing DB concurrently
+    db_init_task = asyncio.create_task(db.init_db())
     await ctx.connect()
-
-    await db.init_db()
+    await db_init_task
 
     # Determine caller ID from connected room participant (must be after ctx.connect())
     caller_id = ""
