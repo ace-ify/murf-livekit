@@ -9,7 +9,10 @@ KMS
 .vscode
 *.egg-info
 .pytest_cache
+.pytest_temp
 .ruff_cache
+data/*.db
+data/*.db-journal
 
 # Claude Code
 .claude/settings.local.json

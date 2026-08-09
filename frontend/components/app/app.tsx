@@ -2,16 +2,15 @@
 
 import { useMemo } from 'react';
 import { TokenSource } from 'livekit-client';
+import { TriangleAlert } from 'lucide-react';
 import { useSession } from '@livekit/components-react';
-import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
-import { ViewController } from '@/components/app/view-controller';
+import { SamarDashboard } from '@/components/app/samar-dashboard';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
-import { getSandboxTokenSource } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 
@@ -28,10 +27,8 @@ interface AppProps {
 
 export function App({ appConfig }: AppProps) {
   const tokenSource = useMemo(() => {
-    return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
-      ? getSandboxTokenSource(appConfig)
-      : TokenSource.endpoint('/api/token');
-  }, [appConfig]);
+    return TokenSource.endpoint('/api/token');
+  }, []);
 
   const session = useSession(
     tokenSource,
@@ -42,12 +39,12 @@ export function App({ appConfig }: AppProps) {
     <AgentSessionProvider session={session}>
       <AppSetup />
       <main className="h-svh">
-        <ViewController />
+        <SamarDashboard />
       </main>
       <StartAudioButton label="Start Audio" />
       <Toaster
         icons={{
-          warning: <WarningIcon weight="bold" />,
+          warning: <TriangleAlert className="size-4" />,
         }}
         position="top-center"
         className="toaster group"

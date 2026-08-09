@@ -4,26 +4,12 @@ export interface AppConfig {
   companyName: string;
 
   supportsChatInput: boolean;
-  supportsVideoInput: boolean;
-  supportsScreenShare: boolean;
-  isPreConnectBufferEnabled: boolean;
 
   logo: string;
   startButtonText: string;
   accent?: string;
   logoDark?: string;
   accentDark?: string;
-
-  audioVisualizerType?: 'bar' | 'wave' | 'grid' | 'radial' | 'aura';
-  audioVisualizerColor?: `#${string}`;
-  audioVisualizerColorDark?: `#${string}`;
-  audioVisualizerColorShift?: number;
-  audioVisualizerBarCount?: number;
-  audioVisualizerGridRowCount?: number;
-  audioVisualizerGridColumnCount?: number;
-  audioVisualizerRadialBarCount?: number;
-  audioVisualizerRadialRadius?: number;
-  audioVisualizerWaveLineWidth?: number;
 
   // agent dispatch configuration
   agentName?: string;
@@ -33,39 +19,18 @@ export interface AppConfig {
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Samar Health Helpline',
-  pageTitle: 'Samar — Health Access Helpline',
-  pageDescription: 'A voice helpline for rural health centres, powered by Murf Falcon — the fastest TTS API',
+  companyName: 'Careva Health Helpline',
+  pageTitle: 'Careva — AI Health Access Platform',
+  pageDescription: 'A voice helpline for health centres, powered by Murf Falcon and LiveKit Agents',
 
-  // Voice-only on purpose: this models a phone call to a health centre. Leaving
-  // camera/screen-share on made callers ask Samar to "look at" them, and typing
-  // input is useless to a caller who can't read.
+  // Voice-only on purpose: this models a phone call to a health centre.
   supportsChatInput: true,
-  supportsVideoInput: false,
-  supportsScreenShare: false,
-  isPreConnectBufferEnabled: true,
 
-  logo: '/murf-logo.svg',
+  logo: '/careva.png',
   accent: '#0D9488',
-  logoDark: '/murf-logo-dark.svg',
+  logoDark: '/careva.png',
   accentDark: '#2DD4BF',
-  startButtonText: 'Call Samar',
-
-  // optional: audio visualization configuration
-  // audioVisualizerType: 'bar',
-  // audioVisualizerColor: '#002cf2',
-  // audioVisualizerColorDark: '#1fd5f9',
-  // audioVisualizerColorShift: 0.3,
-  // audioVisualizerBarCount: 5,
-  // audioVisualizerType: 'radial',
-  // audioVisualizerRadialBarCount: 24,
-  // audioVisualizerRadialRadius: 100,
-  // audioVisualizerType: 'grid',
-  // audioVisualizerGridRowCount: 25,
-  // audioVisualizerGridColumnCount: 25,
-  // audioVisualizerType: 'wave',
-  // audioVisualizerWaveLineWidth: 3,
-  // audioVisualizerType: 'aura',
+  startButtonText: 'Call Careva',
 
   // agent dispatch configuration
   agentName: process.env.AGENT_NAME ?? undefined,

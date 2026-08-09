@@ -1,112 +1,246 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTheme } from 'next-themes';
+import Image from 'next/image';
+import {
+  Activity,
+  AlertCircle,
+  ChevronDown,
+  Loader2,
+  MessageSquare,
+  Mic,
+  MicOff,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Phone,
+  PhoneOff,
+  Plus,
+  Search,
+  SendHorizontal,
+  Settings,
+  Signal,
+  Sparkles,
+  Sun,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   useAgent,
+  useChat,
+  useRoomContext,
   useSessionContext,
   useSessionMessages,
   useVoiceAssistant,
 } from '@livekit/components-react';
-import {
-  Activity,
-  AlertCircle,
-  BarChart2,
-  CheckCircle2,
-  Clock,
-  FileText,
-  Folder,
-  History,
-  Lock,
-  Mic,
-  MicOff,
-  Phone,
-  PhoneOff,
-  Radio,
-  RotateCcw,
-  Settings,
-  Shield,
-  Sparkles,
-  Stethoscope,
-  Volume2,
-} from 'lucide-react';
 import { AgentAudioVisualizerWave } from '@/components/agents-ui/agent-audio-visualizer-wave';
 import { useInputControls } from '@/hooks/agents-ui/use-agent-control-bar';
 import { cn } from '@/lib/shadcn/utils';
 
-export type DashState =
-  | 'ready'
-  | 'connecting'
-  | 'listening'
-  | 'thinking'
-  | 'speaking'
-  | 'ended';
+export type DashState = 'ready' | 'connecting' | 'listening' | 'speaking' | 'ended';
 
 interface StateMeta {
   badgeText: string;
-  hindiText: string;
+  statusHint: string;
   dotBg: string;
   pillBg: string;
-  pillBorder: string;
   textColor: string;
 }
 
 const STATE_CONFIG: Record<DashState, StateMeta> = {
   ready: {
-    badgeText: 'AGENT READY',
-    hindiText: 'कॉल शुरू करने के लिए तैयार',
-    dotBg: 'bg-slate-400',
-    pillBg: 'bg-white',
-    pillBorder: 'border-black',
-    textColor: 'text-black',
+    badgeText: 'READY',
+    statusHint: 'The agent has not started yet',
+    dotBg: 'bg-slate-400 dark:bg-slate-300',
+    pillBg: 'bg-white/90 dark:bg-slate-800/90',
+    textColor: 'text-slate-700 dark:text-slate-200',
   },
   connecting: {
-    badgeText: 'CONNECTING...',
-    hindiText: 'हेल्पलाइन से जुड़ रहा है...',
+    badgeText: 'CONNECTING',
+    statusHint: 'The agent is joining the call; please wait',
     dotBg: 'bg-amber-400 animate-ping',
-    pillBg: 'bg-amber-100',
-    pillBorder: 'border-black',
-    textColor: 'text-black',
+    pillBg: 'bg-amber-100/90 dark:bg-amber-950/70',
+    textColor: 'text-amber-900 dark:text-amber-300',
   },
   listening: {
-    badgeText: 'AGENT LISTENING',
-    hindiText: 'आपकी बात सुन रहे हैं...',
+    badgeText: 'LISTENING TO YOU',
+    statusHint: 'Listening to you',
     dotBg: 'bg-emerald-400 animate-pulse',
-    pillBg: 'bg-emerald-100',
-    pillBorder: 'border-black',
-    textColor: 'text-black',
-  },
-  thinking: {
-    badgeText: 'EVALUATING TRIAGE',
-    hindiText: 'जांच हो रही है...',
-    dotBg: 'bg-sky-400 animate-pulse',
-    pillBg: 'bg-sky-100',
-    pillBorder: 'border-black',
-    textColor: 'text-black',
+    pillBg: 'bg-emerald-100/90 dark:bg-emerald-950/70',
+    textColor: 'text-emerald-900 dark:text-emerald-300',
   },
   speaking: {
-    badgeText: 'SAMAR SPEAKING',
-    hindiText: 'समर बोल रहा है...',
+    badgeText: 'AGENT IS SPEAKING',
+    statusHint: 'Agent is speaking',
     dotBg: 'bg-violet-500 animate-pulse',
-    pillBg: 'bg-violet-100',
-    pillBorder: 'border-black',
-    textColor: 'text-black',
+    pillBg: 'bg-violet-100/90 dark:bg-violet-950/70',
+    textColor: 'text-violet-900 dark:text-violet-300',
   },
   ended: {
     badgeText: 'CALL ENDED',
-    hindiText: 'कॉल समाप्त',
+    statusHint: 'The conversation is over',
     dotBg: 'bg-rose-500',
-    pillBg: 'bg-rose-100',
-    pillBorder: 'border-black',
-    textColor: 'text-black',
+    pillBg: 'bg-rose-100/90 dark:bg-rose-950/70',
+    textColor: 'text-rose-900 dark:text-rose-300',
   },
 };
 
-// Format duration
-function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+export interface ChatMessageItem {
+  id: string;
+  message: string;
+  isUser: boolean;
+  timestamp: number;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessageItem[];
+}
+
+const STORAGE_KEY = 'careva_chat_sessions_v1';
+
+const _rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'narrow' });
+function formatRelativeTime(timestamp: number): string {
+  const diffSec = (timestamp - Date.now()) / 1000;
+  if (Math.abs(diffSec) < 60) return 'just now';
+  if (Math.abs(diffSec) < 3600) return _rtf.format(Math.round(diffSec / 60), 'minute');
+  if (Math.abs(diffSec) < 86400) return _rtf.format(Math.round(diffSec / 3600), 'hour');
+  return _rtf.format(Math.round(diffSec / 86400), 'day');
+}
+
+// Add entries here to support more languages; key must match selectedLang value
+const LANGUAGES = [
+  { value: 'hi', label: '🇮🇳 हिन्दी', short: '🇮🇳 HI' },
+  { value: 'en', label: '🇬🇧 English', short: '🇬🇧 EN' },
+] satisfies { value: string; label: string; short: string }[];
+
+const QUICK_SUGGESTIONS: Record<string, string[]> = {
+  hi: [
+    '2 दिन से तेज बुखार है',
+    'डॉक्टर से परामर्श चाहिए',
+    'पास का PHC केंद्र कहाँ है?',
+    'PMJAY योजना में क्या लाभ हैं?',
+  ],
+  en: [
+    'Fever & cough for 2 days',
+    'Need doctor consultation',
+    'Nearest health center?',
+    'PMJAY scheme benefits?',
+  ],
+};
+
+function toChatItems(
+  rawMessages: Array<{
+    id: string;
+    message: string;
+    from?: { isLocal?: boolean };
+    createdAt?: string | number | Date;
+  }>
+): ChatMessageItem[] {
+  return rawMessages.map((m) => ({
+    id: m.id,
+    message: m.message,
+    isUser: !!m.from?.isLocal,
+    timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+  }));
+}
+
+function mergeMessages(existing: ChatMessageItem[], live: ChatMessageItem[]): ChatMessageItem[] {
+  const indexMap = new Map(existing.map((m, idx) => [m.id, idx]));
+  const merged = [...existing];
+
+  for (const item of live) {
+    const existingIdx = indexMap.get(item.id);
+    if (existingIdx !== undefined) {
+      merged[existingIdx] = {
+        ...merged[existingIdx],
+        message: item.message,
+        timestamp: item.timestamp || merged[existingIdx].timestamp,
+      };
+    } else {
+      indexMap.set(item.id, merged.length);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+interface NavItemProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  active?: boolean;
+  isSidebarOpen: boolean;
+  onClick: () => void;
+  title?: string;
+  badge?: boolean;
+  rightElement?: React.ReactNode;
+  variant?: 'default' | 'primary';
+  className?: string;
+}
+
+function NavItem({
+  icon: Icon,
+  label,
+  active = false,
+  isSidebarOpen,
+  onClick,
+  title,
+  badge = false,
+  rightElement,
+  variant = 'default',
+  className,
+}: NavItemProps) {
+  const isPrimary = variant === 'primary';
+  const activeClass =
+    isPrimary || active
+      ? 'clay-btn-primary text-slate-950'
+      : 'clay-btn text-slate-700 hover:text-slate-950';
+
+  if (isSidebarOpen) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'flex w-full items-center justify-between p-2.5 text-xs font-black uppercase transition-all',
+          activeClass,
+          isPrimary &&
+            'justify-center gap-2 py-2.5 tracking-wider hover:scale-[1.02] active:scale-95',
+          className
+        )}
+        title={title || label}
+      >
+        <div className="flex items-center gap-2.5">
+          <Icon className="size-4 stroke-[2.5]" />
+          <span>{label}</span>
+        </div>
+        {rightElement}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'clay-btn relative flex size-11 items-center justify-center rounded-2xl transition-all hover:scale-105 active:scale-95',
+        activeClass,
+        className
+      )}
+      title={title || label}
+    >
+      <Icon className="size-5 stroke-[2.5]" />
+      {badge && (
+        <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-sky-500 ring-2 ring-white" />
+      )}
+    </button>
+  );
 }
 
 // Microphone permission hook
@@ -144,512 +278,1025 @@ export function SamarDashboard() {
   const { state: agentState } = useAgent();
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
+  const { send } = useChat();
   const { isDenied } = useMicStatus();
   const { microphoneToggle } = useInputControls();
+  const room = useRoomContext();
 
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [hasStartedOnce, setHasStartedOnce] = useState(false);
-  const [sessionSeconds, setSessionSeconds] = useState(0);
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'records' | 'history' | 'settings'>('dashboard');
+  const [selectedLang, setSelectedLang] = useState<string>('hi');
+  const [isLangOpen, setIsLangOpen] = useState(false);
+  const [livePing, setLivePing] = useState<number | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isChatsDropdownOpen, setIsChatsDropdownOpen] = useState(true);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeNav, setActiveNav] = useState<'new_chat' | 'chats' | 'dashboard' | 'settings'>(
+    'dashboard'
+  );
+  // Navbar Theme state
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isDark = mounted && (theme === 'dark' || resolvedTheme === 'dark');
+
+  // WebRTC RTT latency — uses standard RTCPeerConnection.getStats() (browser API).
+  // Engine access is cast to `any` with a silent catch so LiveKit internal refactors
+  // don't break the app; ping display is cosmetic and degrades gracefully.
+  // ponytail: no named public getter in livekit-client 2.x; swap to room.engine.publisherRTCPeerConnection if that lands
+  useEffect(() => {
+    if (!isConnected) {
+      setLivePing(null);
+      return;
+    }
+    let cancelled = false;
+
+    const measure = async () => {
+      try {
+        const eng = (
+          room as unknown as {
+            engine?: {
+              publisherRTCPeerConnection?: RTCPeerConnection;
+              publisher?: { pc?: RTCPeerConnection };
+            };
+          }
+        )?.engine;
+        const pc: RTCPeerConnection | undefined =
+          eng?.publisherRTCPeerConnection ?? eng?.publisher?.pc;
+        if (!pc || pc.connectionState !== 'connected') return;
+        for (const report of (await pc.getStats()).values()) {
+          if (
+            report.type === 'candidate-pair' &&
+            report.nominated &&
+            typeof report.currentRoundTripTime === 'number'
+          ) {
+            if (!cancelled) setLivePing(Math.round(report.currentRoundTripTime * 1000));
+            return;
+          }
+        }
+      } catch {
+        // silently ignore — ping is cosmetic
+      }
+    };
+
+    measure();
+    const id = setInterval(measure, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isConnected, room]);
+
+  // Chat input state
+  const [chatInputText, setChatInputText] = useState('');
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load saved sessions from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed: ChatSession[] = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setSessions(parsed);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load chat history:', e);
+    }
+  }, []);
+
+  // Active session object
+  const activeSession = useMemo(() => {
+    return sessions.find((s) => s.id === activeChatId) || null;
+  }, [sessions, activeChatId]);
+
+  // Filtered sessions based on search query
+  const filteredSessions = useMemo(() => {
+    if (!searchQuery.trim()) return sessions;
+    const q = searchQuery.toLowerCase();
+    return sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.messages.some((m) => m.message.toLowerCase().includes(q))
+    );
+  }, [sessions, searchQuery]);
+
+  // Combined messages to display in the chat stream (updating real-time speech tokens)
+  const displayedMessages = useMemo<ChatMessageItem[]>(() => {
+    const liveItems = toChatItems(messages);
+    if (!activeSession) return liveItems;
+    return mergeMessages(activeSession.messages, liveItems);
+  }, [messages, activeSession]);
+
+  // Auto-scroll to bottom as messages or streaming words arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [displayedMessages]);
+
+  // Sync live LiveKit messages into persistent active chat session
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const currentLiveMsgs = toChatItems(messages);
+
+    setSessions((prevSessions) => {
+      let currentId = activeChatId;
+      if (!currentId) {
+        currentId = `chat_${Date.now()}`;
+        setActiveChatId(currentId);
+      }
+
+      const existingIndex = prevSessions.findIndex((s) => s.id === currentId);
+      let updated: ChatSession[];
+
+      if (existingIndex >= 0) {
+        const existing = prevSessions[existingIndex];
+        const mergedMessages = mergeMessages(existing.messages, currentLiveMsgs);
+
+        const firstUserMsg = mergedMessages.find((m) => m.isUser)?.message;
+        const autoTitle = firstUserMsg
+          ? firstUserMsg.length > 26
+            ? firstUserMsg.slice(0, 26) + '...'
+            : firstUserMsg
+          : mergedMessages[0]?.message.slice(0, 26) || existing.title;
+
+        const updatedSession: ChatSession = {
+          ...existing,
+          title:
+            existing.title === 'New Consultation' || existing.title === 'Consultation'
+              ? autoTitle
+              : existing.title,
+          updatedAt: Date.now(),
+          messages: mergedMessages,
+        };
+        updated = [updatedSession, ...prevSessions.filter((_, i) => i !== existingIndex)];
+      } else {
+        const firstUserMsg = currentLiveMsgs.find((m) => m.isUser)?.message;
+        const autoTitle = firstUserMsg
+          ? firstUserMsg.length > 26
+            ? firstUserMsg.slice(0, 26) + '...'
+            : firstUserMsg
+          : currentLiveMsgs[0]?.message.slice(0, 26) || 'Consultation';
+
+        const newSession: ChatSession = {
+          id: currentId,
+          title: autoTitle,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messages: currentLiveMsgs,
+        };
+        updated = [newSession, ...prevSessions];
+      }
+
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (err) {
+        console.error('Failed to save chat sessions:', err);
+      }
+      return updated;
+    });
+  }, [messages, activeChatId]);
+
+  // ChatGPT-like New Chat handler: resets to fresh Ready state without auto-starting call
+  const handleNewChat = () => {
+    if (isConnected) {
+      end();
+    }
+    setActiveChatId(null);
+    setHasStartedOnce(false);
+    setChatInputText('');
+    setActiveNav('new_chat');
+  };
+
+  // Select a previous chat session to view/continue
+  const handleSelectChat = (chat: ChatSession) => {
+    if (isConnected) {
+      end();
+    }
+    setActiveChatId(chat.id);
+    setActiveNav('chats');
+    setHasStartedOnce(true);
+  };
+
+  // Delete a chat session
+  const handleDeleteChat = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation();
+    setSessions((prev) => {
+      const updated = prev.filter((s) => s.id !== chatId);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    if (activeChatId === chatId) {
+      handleNewChat();
+    }
+  };
 
   // Track session timer
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
     if (isConnected) {
       setHasStartedOnce(true);
-      interval = setInterval(() => {
-        setSessionSeconds((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (!hasStartedOnce) {
-        setSessionSeconds(0);
-      }
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isConnected, hasStartedOnce]);
+  }, [isConnected]);
+
+  // Handle sending chat message via LiveKit
+  const handleSendMessage = async (textToSend?: string) => {
+    const text = (textToSend ?? chatInputText).trim();
+    if (!text || isSendingChat) return;
+
+    try {
+      setIsSendingChat(true);
+      // Auto-start session if not connected
+      if (!isConnected) {
+        await start();
+      }
+      await send(text);
+      setChatInputText('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    } finally {
+      setIsSendingChat(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   // Compute state
   const dashState = useMemo<DashState>(() => {
     if (!isConnected) {
-      return hasStartedOnce ? 'ended' : 'ready';
+      return hasStartedOnce || displayedMessages.length > 0 ? 'ended' : 'ready';
     }
     const stateString = (agentState ?? vaState ?? '').toString();
     switch (stateString) {
       case 'connecting':
       case 'initializing':
         return 'connecting';
-      case 'thinking':
-        return 'thinking';
       case 'speaking':
         return 'speaking';
       case 'listening':
-        return 'listening';
+      case 'thinking':
       default:
         return 'listening';
     }
-  }, [isConnected, hasStartedOnce, agentState, vaState]);
+  }, [isConnected, hasStartedOnce, displayedMessages.length, agentState, vaState]);
 
   const stateMeta = STATE_CONFIG[dashState];
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-[#F4F4F0] font-sans text-black selection:bg-[#00F2FE] selection:text-black">
-      {/* ── Top Header Navigation Bar ──────────────────────────────────────── */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b-2 border-black bg-white px-4 md:px-6">
-        {/* Left Brand */}
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center border-2 border-black bg-[#00F2FE] font-black text-black shadow-[2px_2px_0px_#000]">
-              <Stethoscope className="size-4.5 stroke-[2.5]" />
-            </div>
-            <span className="text-lg font-black tracking-tight uppercase">
-              HEALTHVOICE <span className="text-xs font-mono font-normal opacity-70">/ SAMAR</span>
-            </span>
-          </div>
-
-          {/* Navigation Links */}
-          <nav className="hidden items-center gap-2 md:flex">
-            <button
-              onClick={() => setActiveNav('dashboard')}
-              className={cn(
-                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
-                activeNav === 'dashboard'
-                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
-                  : 'bg-white hover:bg-slate-100'
-              )}
-            >
-              DASHBOARD
-            </button>
-            <button
-              onClick={() => setActiveNav('records')}
-              className={cn(
-                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
-                activeNav === 'records'
-                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
-                  : 'bg-white hover:bg-slate-100'
-              )}
-            >
-              PATIENT RECORDS
-            </button>
-            <button
-              onClick={() => setActiveNav('history')}
-              className={cn(
-                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
-                activeNav === 'history'
-                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
-                  : 'bg-white hover:bg-slate-100'
-              )}
-            >
-              SESSION HISTORY
-            </button>
-            <button
-              onClick={() => setActiveNav('settings')}
-              className={cn(
-                'border-2 border-black px-3.5 py-1 text-xs font-black tracking-wide uppercase transition-all',
-                activeNav === 'settings'
-                  ? 'bg-[#00F2FE] shadow-[2px_2px_0px_#000]'
-                  : 'bg-white hover:bg-slate-100'
-              )}
-            >
-              SETTINGS
-            </button>
-          </nav>
-        </div>
-
-        {/* Right Status Tags */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1 text-[11px] font-mono font-bold tracking-tight shadow-[2px_2px_0px_#000]">
-            <span className={cn('size-2 border border-black', isConnected ? 'bg-[#10B981]' : 'bg-slate-300')} />
-            <span>
-              {isConnected ? 'CONNECTED: E2E SECURE (12MS)' : 'DISCONNECTED: READY'}
-            </span>
-          </div>
-
-          <button className="flex size-8 items-center justify-center border-2 border-black bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100">
-            <Lock className="size-3.5 stroke-[2.5]" />
-          </button>
-          <button className="flex size-8 items-center justify-center border-2 border-black bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100">
-            <BarChart2 className="size-3.5 stroke-[2.5]" />
-          </button>
-        </div>
-      </header>
-
-      {/* ── Microphone Error Warning Banner ────────────────────────────────── */}
-      <AnimatePresence>
-        {isDenied && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-b-2 border-black bg-[#FEF08A] px-4 py-2"
-          >
-            <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 text-xs font-bold">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="size-4.5 text-black" />
-                <span>MICROPHONE BLOCKED: Samar cannot hear your voice until microphone permissions are enabled.</span>
+    <div className="flex h-screen w-full gap-3 overflow-hidden bg-gradient-to-br from-[#E8EEF5] via-[#EDF2F7] to-[#DFE7F0] p-3 font-sans text-slate-800 transition-colors duration-200 selection:bg-[#00F2FE] selection:text-slate-950 md:p-4 dark:from-[#070c14] dark:via-[#090f18] dark:to-[#05080e] dark:text-slate-100">
+      {/* ── Left Collapsible Clay Sidebar (Full Height, Connected) ─────────── */}
+      <motion.aside
+        animate={{ width: isSidebarOpen ? 260 : 72 }}
+        transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+        className={cn(
+          'clay-card flex shrink-0 flex-col justify-between overflow-hidden transition-[padding] duration-200',
+          isSidebarOpen ? 'w-[260px] p-3.5' : 'w-[72px] items-center p-2.5'
+        )}
+      >
+        {/* Top Section */}
+        <div className="flex w-full flex-col">
+          {/* Operator Card / Collapsed Icon (Matching Screenshot Top Bar) */}
+          {isSidebarOpen ? (
+            <div className="clay-card-flat flex items-center justify-between gap-2 p-1.5">
+              {/* Left: Circular Careva Logo + CAREVA */}
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full shadow-sm ring-1 ring-slate-200/80 dark:ring-white/10">
+                  <Image
+                    src="/careva.png"
+                    alt="Careva Logo"
+                    width={36}
+                    height={36}
+                    className="size-full object-cover"
+                  />
+                </div>
+                <span className="truncate text-xs font-black tracking-tight text-slate-900 uppercase dark:text-slate-100">
+                  CAREVA
+                </span>
               </div>
+
+              {/* Right: Circular Search & Circular Sidebar Collapse Buttons */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setIsSearchOpen((prev) => !prev)}
+                  className={cn(
+                    'clay-btn flex size-8 shrink-0 items-center justify-center rounded-full transition-all hover:scale-105 active:scale-95',
+                    isSearchOpen
+                      ? 'bg-sky-200 text-sky-950 dark:bg-cyan-900/80 dark:text-cyan-100'
+                      : 'bg-white text-slate-700 hover:text-slate-950 dark:bg-[#152030] dark:text-slate-200 dark:hover:text-white'
+                  )}
+                  title="Search chats"
+                  aria-label="Search chats"
+                >
+                  <Search className="size-3.5 stroke-[2.5]" />
+                </button>
+                <button
+                  onClick={() => {
+                    setIsSidebarOpen(false);
+                    setIsSearchOpen(false);
+                  }}
+                  className="clay-btn flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 transition-all hover:scale-105 hover:text-slate-950 active:scale-95 dark:bg-[#152030] dark:text-slate-200 dark:hover:text-white"
+                  title="Collapse sidebar"
+                  aria-label="Collapse sidebar"
+                >
+                  <PanelLeftClose className="size-3.5 stroke-[2.5]" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
               <button
-                onClick={() => {
-                  navigator.mediaDevices?.getUserMedia({ audio: true }).catch(() => {});
-                }}
-                className="border-2 border-black bg-white px-3 py-0.5 text-xs font-black shadow-[2px_2px_0px_#000] hover:bg-black hover:text-white"
+                onClick={() => setIsSidebarOpen(true)}
+                className="group relative mx-auto flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full shadow-sm ring-2 ring-sky-300/40 transition-all hover:scale-105 active:scale-95 dark:ring-cyan-500/30"
+                title="Open sidebar (Careva)"
+                aria-label="Open sidebar"
               >
-                RETRY ACCESS
+                {/* Default: Careva Logo */}
+                <Image
+                  src="/careva.png"
+                  alt="Careva Logo"
+                  width={44}
+                  height={44}
+                  className="size-full object-cover transition-all duration-200 group-hover:scale-75 group-hover:opacity-0"
+                />
+                {/* Hover: Sidebar Expand Icon */}
+                <PanelLeftOpen className="absolute size-5 stroke-[2.5] text-slate-900 opacity-0 transition-all duration-200 group-hover:scale-100 group-hover:opacity-100 dark:text-cyan-400" />
               </button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
 
-      {/* ── Main Layout Body ───────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Left Sidebar (Clinical Operator) ─────────────────────────────── */}
-        <aside className="flex w-60 shrink-0 flex-col justify-between border-r-2 border-black bg-white p-4">
-          <div>
-            {/* Operator Card */}
-            <div className="flex items-center gap-3 border-2 border-black bg-[#F8F9FA] p-3 shadow-[2px_2px_0px_#000]">
-              <div className="flex size-10 shrink-0 items-center justify-center border-2 border-black bg-[#00F2FE] font-black text-black">
-                <Stethoscope className="size-6 stroke-[2.5]" />
-              </div>
-              <div>
-                <p className="text-sm font-black tracking-tight uppercase">DR. SAMAR</p>
-                <p className="text-[10px] font-mono font-bold text-slate-600 uppercase">CLINICAL SPECIALIST</p>
-              </div>
+          {/* Quick Search Input (when Search is clicked) */}
+          <AnimatePresence>
+            {isSidebarOpen && isSearchOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.18 }}
+                className="mt-2"
+              >
+                <div className="clay-card-flat flex items-center gap-1.5 px-2.5 py-1.5">
+                  <Search className="size-3.5 shrink-0 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search chats..."
+                    className="w-full bg-transparent text-[11px] font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                    autoFocus
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* 1. New Chat Button */}
+          <NavItem
+            icon={Plus}
+            label="NEW CHAT"
+            variant="primary"
+            isSidebarOpen={isSidebarOpen}
+            onClick={handleNewChat}
+            title={isSidebarOpen ? 'Start a new chat session' : 'New Chat'}
+            className="mt-3"
+          />
+
+          {/* Nav Menu Items */}
+          <div className={cn('mt-3 flex flex-col gap-1.5', !isSidebarOpen && 'items-center')}>
+            {/* 2. Chats (with collapsible dropdown for history) */}
+            <div className={cn('flex flex-col gap-1', isSidebarOpen && 'w-full')}>
+              <NavItem
+                icon={MessageSquare}
+                label="CHATS"
+                active={activeNav === 'chats'}
+                isSidebarOpen={isSidebarOpen}
+                onClick={() => {
+                  if (!isSidebarOpen) {
+                    setIsSidebarOpen(true);
+                    setIsChatsDropdownOpen(true);
+                  } else {
+                    setIsChatsDropdownOpen((prev) => !prev);
+                  }
+                  setActiveNav('chats');
+                }}
+                title={
+                  isSidebarOpen ? 'Chats & Session History' : 'Chats (Click to expand history)'
+                }
+                badge={!isSidebarOpen}
+                rightElement={
+                  <ChevronDown
+                    className={cn(
+                      'size-3.5 stroke-[2.5] text-slate-600 transition-transform duration-200',
+                      isChatsDropdownOpen && 'rotate-180'
+                    )}
+                  />
+                }
+              />
+
+              {/* Dropdown Chat History List */}
+              <AnimatePresence>
+                {isSidebarOpen && isChatsDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="clay-inset flex max-h-56 flex-col gap-1 overflow-y-auto rounded-2xl p-1.5"
+                  >
+                    {filteredSessions.length === 0 ? (
+                      <div className="py-3 text-center font-mono text-[10px] font-bold text-slate-400">
+                        {searchQuery ? 'NO MATCHING CHATS' : 'NO RECENT CHATS YET'}
+                      </div>
+                    ) : (
+                      filteredSessions.map((chat) => {
+                        const isActive = chat.id === activeChatId;
+                        return (
+                          <div
+                            key={chat.id}
+                            onClick={() => handleSelectChat(chat)}
+                            className={cn(
+                              'group flex w-full cursor-pointer items-center justify-between rounded-xl p-2 text-left transition-all active:scale-[0.98]',
+                              isActive
+                                ? 'bg-sky-100/90 ring-1 ring-sky-300 dark:bg-cyan-950/60 dark:ring-cyan-600/60'
+                                : 'hover:bg-white/80 dark:hover:bg-slate-800/60'
+                            )}
+                          >
+                            <div className="min-w-0 flex-1 overflow-hidden pr-1">
+                              <div className="flex w-full items-center justify-between gap-1">
+                                <span
+                                  className={cn(
+                                    'truncate text-[11px] font-black',
+                                    isActive
+                                      ? 'text-sky-950 dark:text-cyan-200'
+                                      : 'text-slate-800 dark:text-slate-200'
+                                  )}
+                                >
+                                  {chat.title}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 flex items-center justify-between gap-1 font-mono text-[9px] text-slate-400 dark:text-slate-500">
+                                <span>{formatRelativeTime(chat.updatedAt)}</span>
+                                <span>{chat.messages.length} msgs</span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteChat(e, chat.id)}
+                              className="p-1 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-600"
+                              title="Delete chat"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* New Session Button */}
-            <button
-              onClick={() => {
-                if (!isConnected) start();
-              }}
-              className="mt-4 flex w-full items-center justify-center gap-2 border-2 border-black bg-[#00F2FE] py-2.5 text-xs font-black tracking-wider text-black uppercase shadow-[3px_3px_0px_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_#000] active:translate-x-1 active:translate-y-1 active:shadow-none"
-            >
-              <Phone className="size-3.5 stroke-[3]" />
-              <span>NEW SESSION</span>
-            </button>
+            {/* 3. Dashboard */}
+            <NavItem
+              icon={Activity}
+              label="DASHBOARD"
+              active={activeNav === 'dashboard'}
+              isSidebarOpen={isSidebarOpen}
+              onClick={() => setActiveNav('dashboard')}
+              title="Dashboard"
+            />
 
-            {/* Nav Menu */}
-            <div className="mt-5 flex flex-col gap-2">
+            {/* 4. Settings */}
+            <NavItem
+              icon={Settings}
+              label="SETTINGS"
+              active={activeNav === 'settings'}
+              isSidebarOpen={isSidebarOpen}
+              onClick={() => setActiveNav('settings')}
+              title="Settings"
+            />
+          </div>
+        </div>
+      </motion.aside>
+
+      {/* ── Right Main Area (Connected Top Header + Workspace) ─────────────── */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* ── Top Header (Shadcn Router Breadcrumbs on Left, Language + Theme + GitHub on Right) ── */}
+        <header className="clay-card mb-3 flex h-14 shrink-0 items-center justify-between px-4 md:px-5">
+          {/* Left: Shadcn-style Router Breadcrumbs */}
+          <div className="flex items-center gap-2">
+            {/* Breadcrumb Path */}
+            <nav
+              aria-label="Breadcrumb"
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-500"
+            >
               <button
                 onClick={() => setActiveNav('dashboard')}
-                className={cn(
-                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
-                  activeNav === 'dashboard'
-                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
-                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
-                )}
+                className="group flex items-center gap-2 transition-all hover:opacity-85"
+                title="Careva Dashboard"
               >
-                <Activity className="size-4 stroke-[2.5]" />
-                <span>DASHBOARD</span>
+                <Image
+                  src="/careva.png"
+                  alt="Careva Logo"
+                  width={24}
+                  height={24}
+                  className="size-6 rounded-full object-cover shadow-xs"
+                />
+                <span className="text-[13px] font-black tracking-tight text-slate-900 dark:text-white">
+                  Careva<span className="text-sky-500 dark:text-cyan-400">.</span>
+                </span>
               </button>
 
-              <button
-                onClick={() => setActiveNav('records')}
-                className={cn(
-                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
-                  activeNav === 'records'
-                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
-                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
-                )}
-              >
-                <Folder className="size-4 stroke-[2.5]" />
-                <span>PATIENT RECORDS</span>
-              </button>
+              <span className="font-mono text-slate-300 dark:text-slate-600">/</span>
 
-              <button
-                onClick={() => setActiveNav('history')}
-                className={cn(
-                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
-                  activeNav === 'history'
-                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
-                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
-                )}
-              >
-                <History className="size-4 stroke-[2.5]" />
-                <span>SESSION HISTORY</span>
-              </button>
+              {activeNav === 'dashboard' && (
+                <span className="font-bold text-slate-900 dark:text-slate-100">Dashboard</span>
+              )}
 
-              <button
-                onClick={() => setActiveNav('settings')}
-                className={cn(
-                  'flex items-center gap-3 border-2 border-black p-2.5 text-xs font-black uppercase transition-all',
-                  activeNav === 'settings'
-                    ? 'bg-[#00F2FE] shadow-[3px_3px_0px_#000]'
-                    : 'bg-white shadow-[2px_2px_0px_#000] hover:bg-slate-100'
-                )}
-              >
-                <Settings className="size-4 stroke-[2.5]" />
-                <span>SETTINGS</span>
-              </button>
-            </div>
-          </div>
+              {activeNav === 'new_chat' && (
+                <span className="font-bold text-slate-900 dark:text-slate-100">
+                  New Consultation
+                </span>
+              )}
 
-          {/* Pipeline Badge */}
-          <div className="border-2 border-dashed border-black bg-[#FAF9F6] p-2.5 text-[10px] font-mono">
-            <p className="font-bold text-black uppercase">VOICE STACK:</p>
-            <p className="text-slate-700">• TTS: Murf Falcon (hi-IN)</p>
-            <p className="text-slate-700">• STT: Deepgram Nova-3</p>
-            <p className="text-slate-700">• LLM: Gemini 2.0</p>
-          </div>
-        </aside>
-
-        {/* ── Main Workspace ─────────────────────────────────────────────────── */}
-        <main className="flex flex-1 flex-col overflow-y-auto p-4 md:p-6">
-          {/* Header of Main: Title + Recording tag + Timer */}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b-2 border-black pb-4">
-            <div>
-              <h1 className="text-2xl font-black tracking-tight uppercase md:text-3xl">
-                ACTIVE CONSULTATION
-              </h1>
-              <p className="font-mono text-xs font-bold text-slate-700 uppercase">
-                PATIENT ID: #84932 • INTAKE SESSION • PHC RURAL TRIAGE
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 border-2 border-black bg-[#FF3366] px-3.5 py-1 text-xs font-black tracking-wider text-white uppercase shadow-[2px_2px_0px_#000]">
-                <span className="size-2 rounded-full bg-white animate-ping" />
-                <span>{isConnected ? 'RECORDING' : 'IDLE'}</span>
-              </div>
-
-              <div className="border-2 border-black bg-white px-3.5 py-1 font-mono text-sm font-black shadow-[2px_2px_0px_#000]">
-                {formatDuration(sessionSeconds)}
-              </div>
-            </div>
-          </div>
-
-          {/* Consultation Grid (Center Visualizer + Right Context) */}
-          <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
-            {/* Left 2 Cols: Visualizer & Live Transcript */}
-            <div className="flex flex-col gap-5 lg:col-span-2">
-              {/* ── Voice Visualizer Card ───────────────────────────────────── */}
-              <div className="relative flex flex-col items-center justify-between border-2 border-black bg-[#F8F9FA] p-5 shadow-[4px_4px_0px_#000]">
-                {/* Agent Listening Badge on Top Left */}
-                <div className="flex w-full items-center justify-between">
-                  <div className="flex items-center gap-2 border-2 border-black bg-white px-3 py-1 text-xs font-black uppercase shadow-[2px_2px_0px_#000]">
-                    <Mic className="size-3.5 stroke-[2.5]" />
-                    <span>{stateMeta.badgeText}</span>
-                    <span className="font-normal opacity-60">|</span>
-                    <span className="font-sans text-[11px] font-bold text-slate-700">
-                      {stateMeta.hindiText}
-                    </span>
-                  </div>
-
-                  <span className="font-mono text-[11px] font-bold uppercase text-slate-600">
-                    CHANNEL: STEREO 48KHZ
-                  </span>
-                </div>
-
-                {/* LiveKit Wave Sine Shader Visualizer */}
-                <div className="relative my-4 flex h-[220px] w-full max-w-[480px] items-center justify-center sm:h-[250px] md:h-[280px]">
-                  <AgentAudioVisualizerWave
-                    size="xl"
-                    state={
-                      dashState === 'ready'
-                        ? 'disconnected'
-                        : dashState === 'ended'
-                          ? 'disconnected'
-                          : (agentState ?? 'listening')
-                    }
-                    color={
-                      dashState === 'speaking'
-                        ? '#6D28D9' // deep rich violet
-                        : dashState === 'listening'
-                          ? '#047857' // deep emerald
-                          : dashState === 'thinking'
-                            ? '#0369A1' // deep sapphire blue
-                            : dashState === 'connecting'
-                              ? '#D97706' // deep amber
-                              : '#0891B2' // deep dark cyan
-                    }
-                    colorShift={0.3}
-                    lineWidth={3}
-                    blur={0.2}
-                    audioTrack={audioTrack}
-                    className="size-full"
-                  />
-
-                  {/* Ready CTA Overlay when disconnected */}
-                  {!isConnected && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#F8F9FA]/75 backdrop-blur-[1.5px]">
-                      <button
-                        onClick={() => start()}
-                        className="group flex items-center gap-2.5 border-2 border-black bg-[#00F2FE] px-6 py-3 text-xs font-black uppercase text-black shadow-[4px_4px_0px_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[2px_2px_0px_#000] active:translate-x-1 active:translate-y-1 active:shadow-none"
-                      >
-                        {hasStartedOnce ? (
-                          <>
-                            <RotateCcw className="size-4 stroke-[3] transition-transform group-hover:-rotate-90" />
-                            <span>RECONNECT SESSION (पुनः जुड़ें)</span>
-                          </>
-                        ) : (
-                          <>
-                            <Phone className="size-4 stroke-[3] transition-transform group-hover:scale-110" />
-                            <span>START CONSULTATION (कॉल शुरू करें)</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
+              {activeNav === 'chats' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsChatsDropdownOpen(true);
+                      if (!isSidebarOpen) setIsSidebarOpen(true);
+                    }}
+                    className="transition-colors hover:text-slate-900 dark:hover:text-white"
+                  >
+                    Chats
+                  </button>
+                  {activeSession && (
+                    <>
+                      <span className="font-mono text-slate-300">/</span>
+                      <span className="max-w-[130px] truncate font-bold text-slate-900 sm:max-w-[200px] md:max-w-[280px] dark:text-slate-100">
+                        {activeSession.title}
+                      </span>
+                    </>
                   )}
+                </>
+              )}
+
+              {activeNav === 'settings' && (
+                <span className="font-bold text-slate-900 dark:text-slate-100">Settings</span>
+              )}
+            </nav>
+          </div>
+
+          {/* Right: Language Toggle, Theme Toggle, View GitHub */}
+          <div className="flex items-center gap-2">
+            {/* Language selector — add entries to LANGUAGES to support more */}
+            <div className="relative">
+              <button
+                onClick={() => setIsLangOpen((p) => !p)}
+                className="clay-btn flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-extrabold text-slate-700 transition-all hover:text-slate-950 dark:text-slate-200 dark:hover:text-white"
+                aria-label="Select language"
+              >
+                <span>
+                  {LANGUAGES.find((l) => l.value === selectedLang)?.short ??
+                    selectedLang.toUpperCase()}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    'size-3 stroke-[2.5] text-slate-400 transition-transform duration-150',
+                    isLangOpen && 'rotate-180'
+                  )}
+                />
+              </button>
+              {isLangOpen && (
+                <div className="clay-card absolute right-0 z-50 mt-1.5 flex min-w-[130px] flex-col gap-0.5 p-1.5 shadow-xl">
+                  {LANGUAGES.map((l) => (
+                    <button
+                      key={l.value}
+                      onClick={() => {
+                        setSelectedLang(l.value);
+                        setIsLangOpen(false);
+                      }}
+                      className={cn(
+                        'rounded-lg px-2.5 py-1.5 text-left text-xs font-bold transition-all',
+                        l.value === selectedLang
+                          ? 'clay-btn-primary text-slate-950'
+                          : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
+                      )}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
                 </div>
+              )}
+            </div>
 
-                {/* Bottom Voice Controls */}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => {
-                      if (isConnected) microphoneToggle.toggle();
-                    }}
-                    disabled={!isConnected}
-                    className={cn(
-                      'flex items-center gap-2 border-2 border-black px-4 py-1.5 text-xs font-black uppercase shadow-[2px_2px_0px_#000] transition-all disabled:opacity-50',
-                      microphoneToggle.enabled
-                        ? 'bg-white hover:bg-slate-100'
-                        : 'bg-[#FF3366] text-white hover:bg-[#EF4444]'
-                    )}
-                  >
-                    {microphoneToggle.enabled ? (
-                      <>
-                        <Mic className="size-4 stroke-[2.5]" />
-                        <span>MUTE MIC</span>
-                      </>
-                    ) : (
-                      <>
-                        <MicOff className="size-4 stroke-[2.5]" />
-                        <span>UNMUTE MIC</span>
-                      </>
-                    )}
-                  </button>
+            {/* 2. Theme Toggle */}
+            <button
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              className="clay-btn flex size-8.5 items-center justify-center rounded-xl text-slate-700 transition-transform hover:scale-105 hover:text-slate-950 active:scale-95"
+              title={isDark ? 'Switch to Light mode' : 'Switch to Dark mode'}
+              aria-label="Toggle theme"
+            >
+              {mounted && isDark ? (
+                <Sun className="size-4 stroke-[2.5] text-amber-500" />
+              ) : (
+                <Moon className="size-4 stroke-[2.5] text-indigo-600" />
+              )}
+            </button>
 
-                  <button
-                    onClick={() => {
-                      if (isConnected) end();
-                    }}
-                    disabled={!isConnected}
-                    className="flex items-center gap-2 border-2 border-black bg-[#FF3366] px-4 py-1.5 text-xs font-black text-white uppercase shadow-[2px_2px_0px_#000] transition-all hover:bg-[#EF4444] disabled:opacity-50"
-                  >
-                    <PhoneOff className="size-4 stroke-[2.5]" />
-                    <span>END CALL</span>
-                  </button>
-                </div>
-              </div>
+            {/* 3. View GitHub */}
+            <a
+              href="https://github.com/ace-ify/murf-livekit"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="clay-btn flex size-8.5 items-center justify-center rounded-xl text-slate-700 transition-transform hover:scale-105 hover:text-slate-950 active:scale-95"
+              title="View on GitHub"
+              aria-label="View on GitHub"
+            >
+              <svg
+                className="size-4 fill-current"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+              </svg>
+            </a>
+          </div>
+        </header>
 
-              {/* ── Live Transcript Card ────────────────────────────────────── */}
-              <div className="border-2 border-black bg-white p-4 shadow-[4px_4px_0px_#000]">
-                <div className="flex items-center justify-between border-b-2 border-black pb-2">
-                  <div className="flex items-center gap-2">
-                    <FileText className="size-4 stroke-[2.5]" />
-                    <span className="font-mono text-xs font-black tracking-wider uppercase">
-                      LIVE TRANSCRIPT
-                    </span>
-                  </div>
-                  <span className="font-mono text-[10px] font-bold uppercase text-slate-500">
-                    DEVANAGARI & EN SPEECH
+        {/* ── Microphone Error Warning Banner ────────────────────────────────── */}
+        <AnimatePresence>
+          {isDenied && (
+            <motion.div
+              initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+              animate={{ height: 'auto', opacity: 1, marginBottom: 12 }}
+              exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+              className="clay-card overflow-hidden border-amber-200/80 bg-amber-50/95 px-5 py-3"
+            >
+              <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 text-xs font-bold text-amber-950">
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="size-5 shrink-0 text-amber-600" />
+                  <span>
+                    MICROPHONE BLOCKED: Samar cannot hear your voice until microphone permissions
+                    are enabled.
                   </span>
                 </div>
+                <button
+                  onClick={() => {
+                    navigator.mediaDevices?.getUserMedia({ audio: true }).catch(() => {});
+                  }}
+                  className="clay-btn shrink-0 bg-white px-4 py-1 text-xs font-black text-amber-900"
+                >
+                  RETRY ACCESS
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-                {/* Messages Container */}
-                <div className="mt-3 flex max-h-56 flex-col gap-3 overflow-y-auto pr-1">
-                  {messages.length === 0 ? (
-                    <div className="flex flex-col gap-2 py-4 text-xs font-medium text-slate-700">
-                      <div className="flex items-start gap-2">
-                        <span className="border-2 border-black bg-[#00F2FE] px-2 py-0.5 font-mono text-[10px] font-black text-black shadow-[1px_1px_0px_#000]">
-                          DR. ARIS / SAMAR:
-                        </span>
-                        <p className="font-medium text-black">
-                          "नमस्ते! मैं प्राथमिक स्वास्थ्य केंद्र से समर बोल रहा हूँ। आप अपनी समस्या बताइए।"
-                        </p>
-                      </div>
+        {/* ── Backend Agent / Connection Error Notification Banner ──────────── */}
+        <AnimatePresence>
+          {agentState === 'failed' && (
+            <motion.div
+              initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+              animate={{ height: 'auto', opacity: 1, marginBottom: 12 }}
+              exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+              className="clay-card overflow-hidden border-rose-200/80 bg-rose-50/95 px-5 py-3"
+            >
+              <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 text-xs font-bold text-rose-950">
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="size-5 shrink-0 text-rose-600" />
+                  <span>
+                    CONNECTION FAILED: Voice helpline backend is unreachable. Make sure the Python
+                    agent server (`python src/agent.py dev`) is running.
+                  </span>
+                </div>
+                <button
+                  onClick={() => start()}
+                  className="clay-btn shrink-0 bg-white px-4 py-1 text-xs font-black text-rose-900"
+                >
+                  RECONNECT
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-                      <div className="flex items-start gap-2">
-                        <span className="font-mono text-[10px] font-black text-slate-700 uppercase">
-                          PATIENT (CALLER):
-                        </span>
-                        <p className="text-slate-800">
-                          "Meri beti ko do din se tez bukhar aur sar dard hai..."
-                        </p>
-                      </div>
-                    </div>
+        {/* ── Main Workspace Grid ────────────────────────────────────────────── */}
+        <main className="flex flex-1 gap-3 overflow-hidden">
+          {/* ── ALL-IN-ONE MAIN BOX (Combined Stage: Sine Wave + Fading Chat Stream + Controls) ── */}
+          <section className="clay-card flex flex-1 flex-col overflow-hidden p-4 md:p-5">
+            {/* Box Top Header: Status Badges & Network Latency Pill */}
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200/60 pb-3 dark:border-slate-800/80">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={cn(
+                    'clay-pill flex items-center gap-2 px-3.5 py-1 text-xs font-black tracking-wide uppercase shadow-sm',
+                    stateMeta.pillBg,
+                    stateMeta.textColor
+                  )}
+                >
+                  <span className={cn('size-2 rounded-full', stateMeta.dotBg)} />
+                  <span>{stateMeta.badgeText}</span>
+                </div>
+
+                {/* Connecting / Low-bandwidth Adaptive Pipeline Notice */}
+                {dashState === 'connecting' && (
+                  <div className="clay-pill flex animate-pulse items-center gap-1.5 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-900 shadow-sm dark:bg-amber-950/60 dark:text-amber-200">
+                    <Loader2 className="size-3 animate-spin text-amber-600 dark:text-amber-400" />
+                    <span>Connecting voice pipeline (Opus 48kHz)... Please wait</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Network & Latency Pill */}
+              <div className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    'clay-pill flex items-center gap-2 px-3 py-1 font-mono text-[11px] font-bold shadow-sm transition-all',
+                    isConnected
+                      ? 'border border-emerald-300/60 bg-emerald-50/90 text-emerald-950 dark:border-emerald-700/50 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : 'bg-white/90 text-slate-700 dark:bg-[#151e2b] dark:text-slate-200'
+                  )}
+                  title={
+                    isConnected
+                      ? `Live Call Active${livePing !== null ? `: ${livePing}ms` : ''}`
+                      : 'Agent Online: Ready to connect'
+                  }
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'size-2 rounded-full',
+                        isConnected ? 'animate-pulse bg-emerald-500' : 'bg-emerald-500'
+                      )}
+                    />
+                    <Signal
+                      className={cn(
+                        'size-3.5 stroke-[2.5]',
+                        isConnected
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      )}
+                    />
+                  </div>
+
+                  {isConnected ? (
+                    <>
+                      {livePing !== null && (
+                        <>
+                          <span className="font-mono text-xs font-black tracking-tight text-slate-900 dark:text-white">
+                            {livePing}ms
+                          </span>
+                          <span className="text-slate-300 dark:text-slate-600">•</span>
+                        </>
+                      )}
+                      <span className="text-[10px] font-extrabold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
+                        LIVE
+                      </span>
+                    </>
                   ) : (
-                    messages.map((m) => {
-                      const isUser = m.from?.isLocal;
-                      return (
-                        <div key={m.id} className="flex items-start gap-2 text-xs">
-                          {isUser ? (
-                            <span className="shrink-0 font-mono text-[10px] font-black uppercase text-slate-700">
-                              PATIENT:
-                            </span>
-                          ) : (
-                            <span className="shrink-0 border-2 border-black bg-[#00F2FE] px-1.5 py-0.2 font-mono text-[10px] font-black text-black shadow-[1px_1px_0px_#000]">
-                              SAMAR:
-                            </span>
-                          )}
-                          <p className="font-medium text-black">{m.message}</p>
-                        </div>
-                      );
-                    })
+                    <span className="text-[10px] font-extrabold tracking-wider text-slate-800 uppercase dark:text-slate-200">
+                      ONLINE
+                    </span>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Right Col: Patient Context & Extracted Entities ─────────────────── */}
-            <div className="flex flex-col gap-5">
-              {/* ── Patient Context Card ─────────────────────────────────────── */}
-              <div className="border-2 border-black bg-white shadow-[4px_4px_0px_#000]">
-                <div className="border-b-2 border-black bg-black px-3 py-1.5 text-xs font-black tracking-widest text-white uppercase">
-                  PATIENT CONTEXT
+            {/* ── SINGLE UNIFIED STAGE (Pre-Call Centerpiece Hero OR Active Sine Wave + Chat) ── */}
+            <div className="clay-inset relative my-3 flex flex-1 flex-col overflow-hidden rounded-3xl p-4">
+              {dashState === 'ready' || dashState === 'ended' ? (
+                /* ── Pre-Call / Post-Call: 3D Spline Orb ── */
+                <div
+                  onClick={() => start()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      start();
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  title="Click to start consultation"
+                  className="group relative flex flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl bg-[#E8EEF5] transition-all hover:brightness-[1.02] focus:outline-none active:scale-[0.99] dark:border dark:border-white/5 dark:bg-[#070b13]"
+                >
+                  <div className="pointer-events-none absolute inset-0 hidden items-center justify-center dark:flex">
+                    <div className="size-80 rounded-full bg-gradient-to-tr from-cyan-500/20 via-sky-500/15 to-indigo-500/20 blur-3xl" />
+                  </div>
+                  <spline-viewer
+                    url="https://prod.spline.design/4iC321jWjBLbdcUS/scene.splinecode"
+                    className="absolute inset-0 size-full cursor-pointer"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      transform: 'scale(1.5)',
+                      transformOrigin: 'center center',
+                    }}
+                  />
                 </div>
-                <div className="p-3.5">
-                  <div className="flex justify-between border-b border-black/20 pb-2 font-mono text-xs font-bold">
-                    <span className="text-slate-600 uppercase">VITALS LAST CHECK</span>
-                    <span className="text-black">OCT 24, 2026</span>
+              ) : (
+                /* ── Active / Ongoing Consultation Stage (Sine Wave + Scrolling Chat) ── */
+                <>
+                  {/* 1. Sine Wave Visualizer Section situated at top (30% compact ratio) */}
+                  <div className="relative z-10 flex h-[100px] w-full shrink-0 items-center justify-center overflow-hidden md:h-[115px]">
+                    <AgentAudioVisualizerWave
+                      size="lg"
+                      state={agentState ?? 'listening'}
+                      color={
+                        dashState === 'speaking'
+                          ? '#7C3AED' // rich violet
+                          : dashState === 'listening'
+                            ? '#059669' // rich emerald
+                            : dashState === 'connecting'
+                              ? '#D97706' // amber
+                              : '#0891B2' // cyan
+                      }
+                      colorShift={0.3}
+                      lineWidth={2.5}
+                      blur={0.2}
+                      audioTrack={audioTrack}
+                      className="size-full"
+                    />
                   </div>
 
-                  <div className="flex justify-between border-b border-black/20 py-2 font-mono text-xs font-bold">
-                    <span className="text-slate-600 uppercase">BP</span>
-                    <span className="text-black">120/80</span>
-                  </div>
+                  {/* 2. Chat Stream scrolling underneath, with top gradient fade-out behind the sine wave */}
+                  <div className="relative mt-1 flex flex-1 flex-col overflow-hidden">
+                    {/* Smooth top fade gradient overlay so messages fade away into the sine wave backdrop */}
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-[#edf2f7] to-transparent dark:from-[#070c14]" />
 
-                  <div className="flex items-center justify-between py-2 font-mono text-xs font-bold">
-                    <span className="text-slate-600 uppercase">SCHEME / ALLERGIES</span>
-                    <span className="border border-black bg-[#FF3366] px-2 py-0.5 font-mono text-[10px] font-black text-white uppercase shadow-[1px_1px_0px_#000]">
-                      PMJAY / AYUSHMAN
-                    </span>
-                  </div>
+                    {/* Message Scroll Container */}
+                    <div className="flex flex-1 flex-col gap-3 overflow-y-auto [mask-image:linear-gradient(to_bottom,transparent_0%,black_16px,black_100%)] px-1 pt-4 pb-2">
+                      {displayedMessages.map((m) => {
+                        const isUser = m.isUser;
+                        return (
+                          <div
+                            key={m.id}
+                            className={cn(
+                              'flex max-w-[82%] items-start gap-2.5 text-xs',
+                              isUser ? 'flex-row-reverse self-end' : 'flex-row self-start'
+                            )}
+                          >
+                            {/* Avatar / Speaker Tag */}
+                            {isUser ? (
+                              <span className="clay-pill shrink-0 self-start bg-slate-200 px-2.5 py-1 font-mono text-[10px] font-black text-slate-800 shadow-sm dark:bg-slate-800 dark:text-slate-200">
+                                YOU
+                              </span>
+                            ) : (
+                              <div
+                                title="Careva AI"
+                                className="clay-card-flat relative size-8 shrink-0 self-start overflow-hidden rounded-full border border-sky-300/80 bg-[#E8EEF5] shadow-md ring-2 ring-sky-400/30 dark:border-cyan-500/50 dark:bg-[#070b13] dark:ring-cyan-500/30"
+                              >
+                                <spline-viewer
+                                  url="https://prod.spline.design/4iC321jWjBLbdcUS/scene.splinecode"
+                                  className="pointer-events-none absolute inset-0 size-full"
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    transform: 'scale(1.8)',
+                                    transformOrigin: 'center center',
+                                  }}
+                                />
+                              </div>
+                            )}
 
-                  <button className="mt-3 w-full border-2 border-black bg-white py-1.5 text-center text-xs font-black tracking-wider uppercase shadow-[2px_2px_0px_#000] hover:bg-slate-100">
-                    VIEW FULL PROFILE
+                            {/* Message Bubble */}
+                            <div
+                              className={cn(
+                                'clay-card-flat rounded-2xl px-4 py-2.5 leading-relaxed shadow-sm transition-all',
+                                isUser
+                                  ? 'border border-slate-300/70 bg-white/95 text-slate-900 dark:border-slate-700/80 dark:bg-[#162030] dark:text-slate-100'
+                                  : 'border border-sky-200/80 bg-gradient-to-r from-sky-50/90 to-cyan-50/90 text-slate-900 shadow-sky-100/50 dark:border-cyan-900/60 dark:bg-gradient-to-r dark:from-[#0f2133] dark:to-[#12283d] dark:text-slate-100 dark:shadow-none'
+                              )}
+                            >
+                              <p className="whitespace-pre-wrap">{m.message}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 3. Bottom Section: Integrated LiveKit Control Bar with Chat Input */}
+            <div className="mt-2 flex shrink-0 flex-col gap-2">
+              {/* Quick Prompt Suggestion Chips */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="mr-1 flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                  <Sparkles className="size-3 text-sky-500" />
+                  <span>{selectedLang === 'hi' ? 'सुझाव:' : 'SUGGEST:'}</span>
+                </div>
+                {QUICK_SUGGESTIONS[selectedLang].map((chip: string, idx: number) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSendMessage(chip)}
+                    className="clay-pill bg-white/90 px-2.5 py-0.5 text-[10px] font-bold text-slate-700 transition-all hover:bg-sky-50 hover:text-sky-900 active:scale-95 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    {chip}
                   </button>
-                </div>
+                ))}
               </div>
 
-              {/* ── Extracted Entities Card ──────────────────────────────────── */}
-              <div className="border-2 border-black bg-white shadow-[4px_4px_0px_#000]">
-                <div className="border-b-2 border-black bg-black px-3 py-1.5 text-xs font-black tracking-widest text-white uppercase">
-                  EXTRACTED ENTITIES
+              {/* Input and Controls Row */}
+              <div className="flex items-center gap-2">
+                {/* Mute Mic Button */}
+                <button
+                  onClick={() => {
+                    if (isConnected) microphoneToggle.toggle();
+                  }}
+                  disabled={!isConnected}
+                  className={cn(
+                    'clay-btn flex size-10 shrink-0 items-center justify-center rounded-2xl transition-all disabled:opacity-50',
+                    microphoneToggle.enabled
+                      ? 'text-slate-700 hover:text-slate-950'
+                      : 'clay-btn-danger text-white'
+                  )}
+                  title={microphoneToggle.enabled ? 'Mute microphone' : 'Unmute microphone'}
+                >
+                  {microphoneToggle.enabled ? (
+                    <Mic className="size-4 stroke-[2.5]" />
+                  ) : (
+                    <MicOff className="size-4 stroke-[2.5]" />
+                  )}
+                </button>
+
+                {/* Text Chat Input Field */}
+                <div className="clay-card-flat flex flex-1 items-center px-3.5 py-1.5">
+                  <input
+                    type="text"
+                    value={chatInputText}
+                    onChange={(e) => setChatInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={
+                      selectedLang === 'hi'
+                        ? 'अपनी बीमारी या सवाल यहाँ लिखें... (Enter दबाएं)'
+                        : 'Type your symptom or question... (Press Enter to send)'
+                    }
+                    className="w-full bg-transparent text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
+                  />
                 </div>
-                <div className="flex flex-col gap-2.5 p-3.5">
-                  <div className="flex items-center justify-between border-2 border-black bg-[#F0FDF4] p-2 font-mono text-[11px] font-bold shadow-[1px_1px_0px_#000]">
-                    <span>SYMPTOM: HIGH FEVER</span>
-                    <CheckCircle2 className="size-3.5 text-[#10B981]" />
-                  </div>
 
-                  <div className="flex items-center justify-between border-2 border-black bg-[#F0FDF4] p-2 font-mono text-[11px] font-bold shadow-[1px_1px_0px_#000]">
-                    <span>ESCALATION: PHC VISIT TODAY</span>
-                    <CheckCircle2 className="size-3.5 text-[#10B981]" />
-                  </div>
+                {/* Send Button */}
+                <button
+                  onClick={() => handleSendMessage()}
+                  disabled={!chatInputText.trim() || isSendingChat}
+                  className="clay-btn-primary flex size-10 shrink-0 items-center justify-center rounded-2xl disabled:scale-100 disabled:opacity-40"
+                  title="Send message"
+                >
+                  {isSendingChat ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <SendHorizontal className="size-4 stroke-[2.5]" />
+                  )}
+                </button>
 
-                  <div className="flex items-center justify-between border-2 border-dashed border-black bg-[#FAF9F6] p-2 font-mono text-[11px] font-bold text-slate-600">
-                    <span className="italic">ANALYZING SEVERITY...</span>
-                    <RotateCcw className="size-3.5 animate-spin" />
-                  </div>
-
-                  <button className="mt-1 w-full border-2 border-black bg-[#00F2FE] py-2 text-center text-xs font-black tracking-wider uppercase shadow-[3px_3px_0px_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_#000]">
-                    GENERATE DRAFT NOTE
+                {/* Start / End Call Button */}
+                {!isConnected ? (
+                  <button
+                    onClick={() => start()}
+                    className="clay-btn-primary flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase shadow-md transition-transform hover:scale-105 active:scale-95"
+                    title={dashState === 'ended' ? 'Resume session' : 'Start consultation'}
+                  >
+                    <Phone className="size-3.5 stroke-[2.5]" />
+                    <span className="hidden sm:inline">START</span>
                   </button>
-                </div>
+                ) : (
+                  <button
+                    onClick={() => end()}
+                    className="clay-btn-danger flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase shadow-md transition-transform hover:scale-105 active:scale-95"
+                    title="End current call"
+                  >
+                    <PhoneOff className="size-3.5 stroke-[2.5]" />
+                    <span className="hidden sm:inline">END</span>
+                  </button>
+                )}
               </div>
             </div>
-          </div>
+          </section>
         </main>
       </div>
     </div>

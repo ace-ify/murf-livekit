@@ -43,10 +43,19 @@ export async function POST(req: Request) {
         { ignoreUnknownFields: true }
       );
     }
-      
-    // Generate participant token
-    const participantName = 'user';
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
+
+    // Generate or retrieve persistent participant identity across calls from the same browser
+    const cookieHeader = req.headers.get('cookie') || '';
+    const cookieMatch = cookieHeader.match(/careva_caller_id=([^;]+)/);
+    const existingCookieId = cookieMatch ? cookieMatch[1] : null;
+
+    const participantName = body?.participant_name || body?.name || 'user';
+    const participantIdentity =
+      body?.user_id ||
+      body?.participant_identity ||
+      existingCookieId ||
+      `caller_${Math.floor(1000 + Math.random() * 9000)}`;
+
     const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
@@ -64,6 +73,7 @@ export async function POST(req: Request) {
     };
     const headers = new Headers({
       'Cache-Control': 'no-store',
+      'Set-Cookie': `careva_caller_id=${participantIdentity}; Path=/; Max-Age=31536000; SameSite=Lax`,
     });
     return NextResponse.json(data, { headers });
   } catch (error) {

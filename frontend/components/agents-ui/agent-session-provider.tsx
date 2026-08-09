@@ -42,8 +42,7 @@ export type AgentSessionProviderProps = SessionProviderProps &
  * @example
  * ```tsx
  * <AgentSessionProvider session={agentSession}>
- *   <AgentControlBar />
- *   <AgentChatTranscript />
+ *   <SamarDashboard />
  * </AgentSessionProvider>
  * ```
  */

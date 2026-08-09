@@ -1,8 +1,7 @@
 import { Public_Sans } from 'next/font/google';
 import localFont from 'next/font/local';
-import { headers } from 'next/headers';
+import Script from 'next/script';
 import { ThemeProvider } from '@/components/app/theme-provider';
-import { ThemeToggle } from '@/components/app/theme-toggle';
 import { cn } from '@/lib/shadcn/utils';
 import { getAppConfig, getStyles } from '@/lib/utils';
 import '@/styles/globals.css';
@@ -44,10 +43,9 @@ interface RootLayoutProps {
 }
 
 export default async function RootLayout({ children }: RootLayoutProps) {
-  const hdrs = await headers();
-  const appConfig = await getAppConfig(hdrs);
+  const appConfig = await getAppConfig();
   const styles = getStyles(appConfig);
-  const { pageTitle, pageDescription, companyName, logo, logoDark } = appConfig;
+  const { pageTitle, pageDescription } = appConfig;
 
   return (
     <html
@@ -63,13 +61,18 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         {styles && <style>{styles}</style>}
         <title>{pageTitle}</title>
         <meta name="description" content={pageDescription} />
+        <Script
+          type="module"
+          src="https://unpkg.com/@splinetool/viewer@1.12.98/build/spline-viewer.js"
+          strategy="afterInteractive"
+        />
       </head>
-      <body className="overflow-hidden bg-[#F4F4F0] text-black">
+      <body className="overflow-hidden bg-[#edf2f7] text-slate-900 transition-colors duration-200 dark:bg-[#070b12] dark:text-slate-100">
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
-          enableSystem={false}
-          disableTransitionOnChange
+          enableSystem={true}
+          disableTransitionOnChange={false}
         >
           {children}
         </ThemeProvider>
