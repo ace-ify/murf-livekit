@@ -87,3 +87,28 @@ async def test_search_health_guidelines_rag():
         ctx, query="Janani Shishu Suraksha free delivery pregnant women"
     )
     assert "Institutional Delivery" in jssk_res or "Free" in jssk_res
+
+
+@pytest.mark.asyncio
+async def test_find_nearest_health_facility_tool():
+    assistant = Assistant()
+    ctx = MagicMock()
+
+    # Direct lookup with location
+    res = await assistant.find_nearest_health_facility(
+        ctx, location_or_pincode="Varanasi"
+    )
+    assert "Shivpur" in res or "Varanasi" in res or "hospital" in res.lower()
+    assert "anusaar" in res
+
+    # Tool chaining: auto-uses caller_facts if location is empty
+    assistant.caller_facts = {"district": "Pune"}
+    res_chained = await assistant.find_nearest_health_facility(
+        ctx, location_or_pincode=""
+    )
+    assert (
+        "hospital" in res_chained.lower()
+        or "kendra" in res_chained.lower()
+        or "pune" in res_chained.lower()
+    )
+    assert "anusaar" in res_chained

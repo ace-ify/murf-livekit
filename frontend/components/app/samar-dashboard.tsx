@@ -3,15 +3,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
 import Image from 'next/image';
+import { RoomEvent } from 'livekit-client';
 import {
   Activity,
   AlertCircle,
+  Building2,
   ChevronDown,
+  Clock,
+  HeartPulse,
   Loader2,
+  Map as MapIcon,
+  MapPin,
   MessageSquare,
   Mic,
   MicOff,
   Moon,
+  Navigation,
   PanelLeftClose,
   PanelLeftOpen,
   Phone,
@@ -41,6 +48,25 @@ import { useInputControls } from '@/hooks/agents-ui/use-agent-control-bar';
 import { cn } from '@/lib/shadcn/utils';
 
 export type DashState = 'ready' | 'connecting' | 'listening' | 'speaking' | 'ended';
+
+export interface FacilityInfo {
+  id: string;
+  name: string;
+  facility_type: string;
+  district: string;
+  state: string;
+  pincode: string;
+  address: string;
+  lat?: number;
+  lon?: number;
+  opd_timings: string;
+  emergency_24x7: boolean;
+  contact_number: string;
+  ambulance_available: boolean;
+  available_doctors: string[];
+  free_services: string[];
+  verified_timestamp?: string;
+}
 
 interface StateMeta {
   badgeText: string;
@@ -301,10 +327,42 @@ export function SamarDashboard() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [isForgetting, setIsForgetting] = useState(false);
+  const [activeFacility, setActiveFacility] = useState<FacilityInfo | null>(null);
+  const [facilityTimestamp, setFacilityTimestamp] = useState<string>('Live Public API');
+  const [showFacilityMap, setShowFacilityMap] = useState(true);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!room) return;
+    const onDataReceived = (
+      payload: Uint8Array,
+      _participant?: unknown,
+      _kind?: unknown,
+      topic?: string
+    ) => {
+      if (topic === 'facility_card') {
+        try {
+          const text = new TextDecoder().decode(payload);
+          const data = JSON.parse(text);
+          if (data?.facility) {
+            setActiveFacility(data.facility);
+            if (data.timestamp) setFacilityTimestamp(data.timestamp);
+            toast.success(`Nearest facility found: ${data.facility.name}`);
+          }
+        } catch (err) {
+          console.error('Error parsing facility_card:', err);
+        }
+      }
+    };
+
+    room.on(RoomEvent.DataReceived, onDataReceived);
+    return () => {
+      room.off(RoomEvent.DataReceived, onDataReceived);
+    };
+  }, [room]);
 
   const handleForgetMe = async () => {
     try {
@@ -1239,6 +1297,141 @@ export function SamarDashboard() {
 
             {/* 3. Bottom Section: Integrated LiveKit Control Bar with Chat Input */}
             <div className="mt-2 flex shrink-0 flex-col gap-2">
+              {/* ── Live Facility Push Card (Day 5 LiveKit Data Event) ───────────── */}
+              <AnimatePresence>
+                {activeFacility && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                    transition={{ duration: 0.22, ease: 'easeOut' }}
+                    className="clay-card relative overflow-hidden border border-emerald-300/80 bg-gradient-to-r from-emerald-50/95 via-teal-50/95 to-cyan-50/95 p-3.5 shadow-lg shadow-emerald-500/10 dark:border-emerald-700/60 dark:bg-gradient-to-r dark:from-[#0b1f1c] dark:via-[#0c2227] dark:to-[#0a1b24] dark:shadow-none"
+                  >
+                    {/* Top Header: Badge + Close */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm">
+                          <Building2 className="size-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
+                            {activeFacility.name}
+                          </h4>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                            <span className="clay-pill bg-emerald-100 px-2 py-0.5 text-[9px] font-black text-emerald-800 uppercase dark:bg-emerald-900/80 dark:text-emerald-200">
+                              {activeFacility.facility_type}
+                            </span>
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                              <Clock className="size-3 text-emerald-600" />
+                              {activeFacility.opd_timings}
+                            </span>
+                            {activeFacility.emergency_24x7 && (
+                              <span className="clay-pill bg-rose-100 px-2 py-0.5 text-[9px] font-black text-rose-800 uppercase dark:bg-rose-900/80 dark:text-rose-200">
+                                24x7 Emergency
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setActiveFacility(null)}
+                        className="clay-btn flex size-6 shrink-0 items-center justify-center rounded-lg p-0 text-slate-500 hover:text-slate-800"
+                        title="Dismiss card"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Address & Free Services */}
+                    <div className="mt-2.5 grid grid-cols-1 gap-2 text-[11px] md:grid-cols-2">
+                      <div className="flex items-start gap-1.5 text-slate-700 dark:text-slate-300">
+                        <MapPin className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+                        <span className="line-clamp-2">{activeFacility.address}</span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1">
+                        <HeartPulse className="size-3.5 shrink-0 text-teal-600" />
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          Free Services:
+                        </span>
+                        {activeFacility.free_services.slice(0, 2).map((srv, idx) => (
+                          <span
+                            key={idx}
+                            className="clay-pill bg-white/80 px-1.5 py-0.5 text-[9px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                          >
+                            {srv}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Interactive Live Map Embed */}
+                    <AnimatePresence>
+                      {showFacilityMap && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 170 }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="relative mt-2.5 overflow-hidden rounded-xl border border-emerald-300/80 bg-slate-100 shadow-inner dark:border-emerald-700/60 dark:bg-slate-900"
+                        >
+                          <iframe
+                            title="Facility Live Location Map"
+                            width="100%"
+                            height="170"
+                            loading="lazy"
+                            className="border-0 filter dark:contrast-90 dark:hue-rotate-180 dark:invert-[0.88]"
+                            src={`https://maps.google.com/maps?q=${encodeURIComponent(
+                              `${activeFacility.name}, ${activeFacility.address}`
+                            )}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Footer Action Links */}
+                    <div className="mt-3 flex items-center justify-between border-t border-emerald-200/60 pt-2 text-[10px] dark:border-emerald-800/40">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-slate-500 dark:text-slate-400">
+                          Verified: {facilityTimestamp}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowFacilityMap(!showFacilityMap)}
+                          className="clay-pill flex items-center gap-1 bg-white/80 px-2 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-300"
+                          title="Toggle Map View"
+                        >
+                          <MapIcon className="size-3" />
+                          <span>{showFacilityMap ? 'HIDE MAP' : 'SHOW MAP'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`https://maps.google.com/?q=${encodeURIComponent(
+                            `${activeFacility.name} ${activeFacility.address}`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="clay-btn flex items-center gap-1 bg-white/90 px-2.5 py-1 font-bold text-emerald-800 hover:text-emerald-950 dark:bg-slate-800 dark:text-emerald-300"
+                        >
+                          <Navigation className="size-3" />
+                          <span>DIRECTIONS</span>
+                        </a>
+                        <a
+                          href="tel:108"
+                          className="clay-btn-primary flex items-center gap-1 px-3 py-1 font-bold text-slate-950"
+                        >
+                          <Phone className="size-3 stroke-[2.5]" />
+                          <span>CALL 108</span>
+                        </a>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Quick Prompt Suggestion Chips */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <div className="mr-1 flex items-center gap-1 text-[10px] font-bold text-slate-500">

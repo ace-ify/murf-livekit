@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import os
 import re
 
 from dotenv import load_dotenv
@@ -18,24 +20,27 @@ from livekit.agents import (
     tokenize,
 )
 from livekit.agents.llm import FallbackAdapter
-from livekit.plugins import deepgram, google, groq, murf, noise_cancellation, silero
+from livekit.plugins import deepgram, groq, murf, noise_cancellation, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import db
+import facilities
 import rag
 
 logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-# Track: Health Access (#VoiceForBharat) — Day 4 Memory, Consent & RAG
+# Track: Health Access (#VoiceForBharat) — Day 5 Real Tools & Facility Locator
 SYSTEM_PROMPT = """You are Careva, a female voice assistant for Health Centres in India. Speak in natural conversational Hindi/Hinglish (Devanagari script) or English based on the caller's language.
 
 ROLE & OBJECTIVES:
 1. Triage symptoms and guide callers when to visit the PHC or call 108 in emergencies.
-2. Answer questions on PHC care, vaccinations, and government health schemes (PM-JAY, JSSK) using search_health_guidelines.
-3. Memory & Consent: When a new caller shares their name, ask for permission to remember them for future calls. Call save_caller_info ONLY AFTER the caller explicitly agrees (says yes/haan). Never call save_caller_info while still asking for consent.
-4. If a caller asks to forget them or delete their data, call forget_caller and confirm deletion.
+2. Nearest Health Centre & Hospital Lookup: When a caller asks where to go, where the nearest PHC/hospital/CHC is, or asks about OPD timings, call `find_nearest_health_facility`. If their district/pincode is already known from memory, use it automatically.
+3. Health Schemes & Vaccines: Answer questions on PHC care, vaccines, and schemes (PM-JAY, JSSK) using `search_health_guidelines`.
+4. Generic Medicines & Jan Aushadhi Savings (MCP Tool): When a caller asks about cheap generic medicines, discounts, or drug prices (e.g. Dolo, BP, Sugar/Diabetes, Acidity, Antibiotics), call `lookup_generic_medicine`.
+5. Memory & Consent: When a new caller shares their name/district, ask for permission to remember them for future calls. Call `save_caller_info` ONLY AFTER the caller explicitly agrees (says yes/haan). Never call `save_caller_info` while still asking for consent.
+6. If a caller asks to forget them or delete their data, call `forget_caller` and confirm deletion.
 
 GUARDRAILS & STYLE:
 - Emergencies (chest pain, breathing trouble, severe bleeding, unconsciousness): Tell them to call 108 immediately.
@@ -90,6 +95,8 @@ class Assistant(Agent):
     def __init__(self, caller_user_id: str = "") -> None:
         super().__init__(instructions=SYSTEM_PROMPT)
         self.caller_user_id = caller_user_id
+        self.caller_facts: dict = {}
+        self.job_ctx: JobContext | None = None
 
     @function_tool
     async def lookup_caller(
@@ -115,6 +122,7 @@ class Assistant(Agent):
             caller = await db.get_caller_by_name(name.strip())
 
         if caller:
+            self.caller_facts = caller.get("facts") or {}
             logger.info(
                 "lookup_caller found record for %s (%s)",
                 caller.get("name"),
@@ -137,6 +145,7 @@ class Assistant(Agent):
         consent_given: bool,
         user_id: str = "",
         language_preference: str = "hi",
+        district: str = "",
         age_band: str = "",
         ongoing_conditions: str = "",
         last_triage_outcome: str = "",
@@ -152,6 +161,7 @@ class Assistant(Agent):
             consent_given: MUST be True only if the caller explicitly agreed to have their info saved.
             user_id: Phone number or caller ID. If empty, defaults to current caller.
             language_preference: Preferred language ("hi", "en", or "hinglish").
+            district: Caller's home district or town (e.g., "Varanasi", "Pune", "Patna").
             age_band: Age range (e.g., "30-40", "elderly", "child 5-10"). Do NOT store sensitive medical history.
             ongoing_conditions: Known general conditions mentioned (e.g., "hypertension, diabetes").
             last_triage_outcome: Short summary of triage advice given (e.g., "Advised routine PHC visit for fever").
@@ -170,6 +180,8 @@ class Assistant(Agent):
             or f"caller_{name.lower().strip().replace(' ', '_')}"
         )
         facts = {}
+        if district and district.lower() not in ("null", "none"):
+            facts["district"] = district.strip()
         if age_band and age_band.lower() not in ("null", "none"):
             facts["age_band"] = age_band.strip()
         if ongoing_conditions and ongoing_conditions.lower() not in ("null", "none"):
@@ -180,6 +192,8 @@ class Assistant(Agent):
             ]
         if last_triage_outcome and last_triage_outcome.lower() not in ("null", "none"):
             facts["last_triage_outcome"] = last_triage_outcome.strip()
+
+        self.caller_facts.update(facts)
 
         saved = await db.save_caller(
             user_id=target_id,
@@ -223,6 +237,7 @@ class Assistant(Agent):
 
         if deleted:
             self.caller_user_id = ""
+            self.caller_facts.clear()
             logger.info(
                 "forget_caller: Deleted record for user_id=%s, name=%s",
                 target_id,
@@ -230,6 +245,68 @@ class Assistant(Agent):
             )
             return "All personal records for this caller have been permanently deleted from the database."
         return "No record was found to delete."
+
+    @function_tool
+    async def find_nearest_health_facility(
+        self,
+        context: RunContext,
+        location_or_pincode: str = "",
+        facility_type: str = "any",
+    ) -> str:
+        """Find the nearest Primary Health Centre (PHC), Community Health Centre (CHC), or Hospital.
+
+        Use this tool when a caller asks:
+        - "Mera paas ka PHC/hospital kahan hai?" or "Where is the nearest health centre?"
+        - "OPD kitne baje tak khula hai?" or "What are the hospital timings?"
+        - "Emergency mein kahan jayein?" or "Which facility is open 24x7?"
+        - "Where can I get free blood tests, fever tests, or delivery care nearby?"
+
+        Args:
+            location_or_pincode: District name, city name, area, or 6-digit Indian PIN code. If empty, automatically checks caller memory.
+            facility_type: Filter by "PHC", "CHC", "District Hospital", or "any".
+        """
+        loc = (location_or_pincode or "").strip()
+        if not loc:
+            # Tool chaining: auto-resolve from Day 4 memory
+            loc = (
+                self.caller_facts.get("district")
+                or self.caller_facts.get("location")
+                or ""
+            )
+
+        logger.info(
+            "find_nearest_health_facility live query loc='%s', type='%s'",
+            loc,
+            facility_type,
+        )
+        res = await facilities.find_health_facilities_async(
+            loc, facility_type=facility_type
+        )
+
+        # Advanced Day 5 Extra: Push results to UI via LiveKit Data Channel
+        if (
+            self.job_ctx
+            and self.job_ctx.room
+            and self.job_ctx.room.local_participant
+            and res.get("primary_facility")
+        ):
+            try:
+                payload = json.dumps(
+                    {
+                        "type": "facility_card",
+                        "facility": res["primary_facility"],
+                        "all_facilities": res.get("facilities", []),
+                        "timestamp": res.get("verified_timestamp", "Live Public API"),
+                    }
+                ).encode("utf-8")
+                await self.job_ctx.room.local_participant.publish_data(
+                    payload,
+                    topic="facility_card",
+                )
+            except Exception as e:
+                logger.warning("Failed to publish facility_card to room: %s", e)
+
+        return res["spoken_summary"]
 
     @function_tool
     async def search_health_guidelines(
@@ -251,6 +328,55 @@ class Assistant(Agent):
         logger.info("search_health_guidelines query='%s'", query)
         results = rag.search_health_rag(query, top_k=2)
         return results
+
+    @function_tool
+    async def lookup_generic_medicine(
+        self,
+        context: RunContext,
+        medicine_or_condition: str,
+    ) -> str:
+        """Lookup PMBJP Jan Aushadhi generic medicine rates, active salts, and up to 80% cost savings compared to branded market medicines.
+
+        Use this tool when a caller asks:
+        - "Dolo 650 ya Paracetamol ka sasta generic rate kya hai?"
+        - "Sugar / Diabetes / BP ki dawaiyan sasti kahan milengi?"
+        - "Jan Aushadhi kendra par kitna discount milta hai?"
+        - "What is the generic alternative for Pan 40 / Augmentin / Telma?"
+
+        Args:
+            medicine_or_condition: Medicine brand name, generic salt name, or medical condition (e.g. "Dolo", "Sugar", "BP", "Telmisartan", "Acidity").
+        """
+        import health_mcp_server
+
+        logger.info(
+            "lookup_generic_medicine query: '%s'",
+            medicine_or_condition,
+        )
+        return await health_mcp_server.lookup_generic_medicine(medicine_or_condition)
+
+    @function_tool
+    async def get_district_health_advisory(
+        self,
+        context: RunContext,
+        district_or_city: str = "",
+    ) -> str:
+        """Query real-time Open-Meteo Air Quality & Respiratory Health API for any Indian district.
+
+        Use this tool when a caller asks:
+        - "Varanasi / Pune / Lucknow mein aaj hawa (AQI) aur mausam kaisa hai?"
+        - "Asthma ya sans ke mareezon ke liye aaj koi health precaution ya alert hai?"
+
+        Args:
+            district_or_city: District or city name in India. If empty, uses caller memory district.
+        """
+        import health_mcp_server
+
+        loc = (district_or_city or "").strip()
+        if not loc:
+            loc = self.caller_facts.get("district") or "India"
+
+        logger.info("get_district_health_advisory query: '%s'", loc)
+        return await health_mcp_server.get_district_health_advisory(loc)
 
 
 server = AgentServer()
@@ -282,16 +408,20 @@ async def my_agent(ctx: JobContext):
         stt=deepgram.STT(model="nova-3", language="multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
-        # Gemini primary — noticeably better Hindi/Hinglish generation than the
-        # Groq llamas, which produced incoherent Hindi ("aapke paas kyon
-        # bhatkana hai?"). Groq llama-3.3-70b is the fallback: 8b-instant gave
-        # off-topic replies, qwen3.6 leaks <think> tags, gpt-oss is slower.
-        # FallbackAdapter: Groq Llama-3.3-70B as primary (fastest TTFT),
-        # with Google Gemini 2.0 Flash as secondary fallback.
+        # Groq llama-3.3-70b primary (fastest TTFT). Fallback is the *same*
+        # model on NVIDIA NIM, so a Groq outage/rate-limit doesn't change the
+        # agent's voice or Hinglish quality — only the endpoint.
+        # ponytail: OpenAI-compatible endpoint, so the openai plugin covers it;
+        # no separate nvidia plugin needed.
         llm=FallbackAdapter(
             [
                 groq.LLM(model="llama-3.3-70b-versatile"),
-                google.LLM(model="gemini-2.0-flash"),
+                openai.LLM(
+                    model="meta/llama-3.3-70b-instruct",
+                    base_url="https://integrate.api.nvidia.com/v1",
+                    api_key=os.getenv("NVIDIA_API_KEY"),
+                    temperature=0.2,
+                ),
             ],
             attempt_timeout=12.0,
         ),
@@ -390,6 +520,7 @@ async def my_agent(ctx: JobContext):
             turn.clear()
 
     assistant = Assistant()  # caller_user_id set after ctx.connect()
+    assistant.job_ctx = ctx
 
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
@@ -433,6 +564,8 @@ async def my_agent(ctx: JobContext):
 
     assistant.caller_user_id = caller_id
     caller_record = await db.get_caller(caller_id) if caller_id else None
+    if caller_record:
+        assistant.caller_facts = caller_record.get("facts") or {}
 
     # Step 4: Greet returning callers by name and context, or default greeting for new callers
     if caller_record:

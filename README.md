@@ -226,6 +226,20 @@ Murf Falcon and LiveKit handle audio format internally. For advanced options, se
 
 ---
 
+## Day 5: Tools & Data Sources (Live vs Local)
+
+Careva (Health Access Voice Agent) integrates real-time public APIs with robust local fallback caches:
+
+| Tool / Service | Source Type | Endpoint / Source | Description |
+| :--- | :--- | :--- | :--- |
+| **Health Facility Locator** (`find_nearest_health_facility`) | **Live Public API** | OpenStreetMap Nominatim + India Post (`api.postalpincode.in`) | Real-time geocoding & POI search for hospitals, PHCs, CHCs, and coordinates across India. |
+| **Emergency & OPD Fallback** (`facilities.py`) | **Local Cache** | Verified Indian Public Health Registry (`FALLBACK_FACILITIES`) | Curated OPD timings, 24x7 emergency status, and free tests used if external APIs time out. |
+| **Generic Drug Identifier (MCP)** (`lookup_generic_medicine`) | **Live Public API** | NLM RxNorm REST API (`rxnav.nlm.nih.gov`) | Dynamic active chemical generic salts and PMBJP Jan Aushadhi 60-80% discount savings guidance. |
+| **Environmental Health Advisory (MCP)** (`get_district_health_advisory`) | **Live Public API** | Open-Meteo Air Quality API (`air-quality-api.open-meteo.com`) | Real-time PM2.5, PM10, and US AQI index with clinical precautions for asthma/elderly callers. |
+| **Health Schemes RAG** (`search_health_guidelines`) | **Local RAG** | `data/knowledge/*.md` | Ayushman Bharat (PM-JAY), JSSK maternal care, and Universal Immunization guidelines. |
+
+---
+
 ## Project Structure
 
 ```
