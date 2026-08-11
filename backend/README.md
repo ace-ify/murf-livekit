@@ -185,6 +185,36 @@ Careva (Health Access Voice Agent) integrates real-time public APIs with robust 
 | **Environmental Health Advisory (MCP)** (`get_district_health_advisory`) | **Live Public API** | Open-Meteo Air Quality API (`air-quality-api.open-meteo.com`) | Real-time PM2.5, PM10, and US AQI index with clinical precautions for asthma/elderly callers. |
 | **Health Schemes RAG** (`search_health_guidelines`) | **Local RAG** | `data/knowledge/*.md` | Ayushman Bharat (PM-JAY), JSSK maternal care, and Universal Immunization guidelines. |
 
+## Day 6: Outbound Calls
+
+Careva can call the patient instead of waiting to be called — medication/vaccination
+reminders and post-triage follow-ups.
+
+One-time telephony setup (Twilio Elastic SIP Trunking → LiveKit):
+
+1. Twilio Console → Elastic SIP Trunking → create a trunk, add a credential list, buy a number.
+2. Create the LiveKit outbound trunk (numbers/address from Twilio):
+
+   ```bash
+   lk sip outbound create --name careva-outbound \
+     --address <your-trunk>.pstn.twilio.com --number +1XXXXXXXXXX \
+     --auth-user "$SIP_AUTH_USERNAME" --auth-pass "$SIP_AUTH_PASSWORD"
+   ```
+
+3. Put the printed `SIPTrunkID` in `.env.local` as `SIP_OUTBOUND_TRUNK_ID`.
+
+Place a call (agent must be running — `uv run src/agent.py dev`):
+
+```bash
+uv run src/outbound.py +919876543210 --name "Ramesh" --reason "your BP medicine reminder"
+```
+
+`src/outbound.py` only creates an explicit agent dispatch with the phone number in job
+metadata; the agent dials via `ctx.api.sip.create_sip_participant(..., wait_until_answered=True)`,
+so no-answer/busy/declined surface as a `TwirpError` and the job shuts down instead of
+talking to a dead line. The opening line (`_outbound_greeting`) states who is calling, why,
+and that saying "stop" ends the call — `end_call` handles that immediately.
+
 ## Testing
 
 The project includes an eval suite based on the LiveKit Agents [testing framework](https://docs.livekit.io/agents/build/testing/):
@@ -224,6 +254,7 @@ docker run --env-file .env.local murf-voice-agent
 backend/
 ├── src/
 │   └── agent.py          # Agent entrypoint — pipeline, prompt, config
+│   └── outbound.py       # Day 6 — dispatch an outbound call
 ├── tests/
 │   └── test_agent.py     # LLM-judged eval suite
 ├── .env.example           # Environment variable template

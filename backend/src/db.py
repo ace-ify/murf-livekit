@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,10 @@ async def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
     """Initialize database and create tables if they do not exist."""
     _ensure_db_dir(db_path)
     async with aiosqlite.connect(db_path) as db:
+        # The Next.js admin route writes this same file through node:sqlite, so the
+        # default rollback journal would hand out SQLITE_BUSY. WAL is persistent.
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA busy_timeout=5000")
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS callers (
@@ -39,6 +44,37 @@ async def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
         )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_callers_name ON callers(name COLLATE NOCASE)"
+        )
+        # Day 7 — human escalations. AUTOINCREMENT on purpose: the id *is* the
+        # reference number spoken to a caller, so a deleted row's id must never be reused.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS escalations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                caller_user_id  TEXT NOT NULL,
+                caller_name     TEXT DEFAULT '',
+                language        TEXT DEFAULT 'hi',
+                urgency         TEXT DEFAULT 'medium',
+                what_happened   TEXT NOT NULL,
+                already_checked TEXT DEFAULT '',
+                followup_method TEXT DEFAULT '',
+                callback_phone  TEXT DEFAULT '',
+                dedupe_key      TEXT NOT NULL,
+                status          TEXT DEFAULT 'open',
+                resolution_note TEXT DEFAULT '',
+                created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at      TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        # Partial unique index = dedupe decided atomically inside SQLite, so two
+        # concurrent sessions cannot both insert the same open case.
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_esc_open_dedupe "
+            "ON escalations(caller_user_id, dedupe_key) WHERE status = 'open'"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_esc_status ON escalations(status, created_at DESC)"
         )
         await db.commit()
     logger.info("Database initialized at %s", db_path)
