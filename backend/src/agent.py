@@ -5,7 +5,7 @@ import os
 import re
 
 from dotenv import load_dotenv
-from livekit import rtc
+from livekit import api, rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -20,7 +20,14 @@ from livekit.agents import (
     tokenize,
 )
 from livekit.agents.llm import FallbackAdapter
-from livekit.plugins import deepgram, groq, murf, noise_cancellation, openai, silero
+from livekit.plugins import (
+    deepgram,
+    groq,
+    murf,
+    noise_cancellation,
+    openai,
+    silero,
+)
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import db
@@ -41,6 +48,7 @@ ROLE & OBJECTIVES:
 4. Generic Medicines & Jan Aushadhi Savings (MCP Tool): When a caller asks about cheap generic medicines, discounts, or drug prices (e.g. Dolo, BP, Sugar/Diabetes, Acidity, Antibiotics), call `lookup_generic_medicine`.
 5. Memory & Consent: When a new caller shares their name/district, ask for permission to remember them for future calls. Call `save_caller_info` ONLY AFTER the caller explicitly agrees (says yes/haan). Never call `save_caller_info` while still asking for consent.
 6. If a caller asks to forget them or delete their data, call `forget_caller` and confirm deletion.
+7. Outbound calls: if you called them and they say stop, "abhi busy hoon", or ask not to be called again, call `end_call` immediately — do not argue or re-pitch.
 
 GUARDRAILS & STYLE:
 - Emergencies (chest pain, breathing trouble, severe bleeding, unconsciousness): Tell them to call 108 immediately.
@@ -52,6 +60,25 @@ GREETING = (
     "Namaste, this is Careva from the health centre. "
     "Are you calling about yourself or for someone else?"
 )
+
+
+def _outbound_greeting(name: str, reason: str) -> str:
+    """Who is calling, why, and how to stop it — in the first two sentences."""
+    who = (
+        f"Namaste{' ' + name + ' ji' if name else ''}, this is Careva, the automated "
+        "health assistant from your local health centre."
+    )
+    why = (
+        f" I'm calling about {reason}."
+        if reason
+        else " I'm calling for a quick health follow-up."
+    )
+    return (
+        who
+        + why
+        + " If this is not a good time, just say stop and I will end the call and not call you again."
+    )
+
 
 # Murf Falcon voice: Anisha (Conversational female voice for Indian English / Hindi)
 MURF_VOICE = "Anisha"
@@ -247,6 +274,21 @@ class Assistant(Agent):
         return "No record was found to delete."
 
     @function_tool
+    async def end_call(self, context: RunContext, reason: str = "") -> str:
+        """End the call politely. Call this when the caller says stop, asks not to be
+        called again, says it's a bad time, or the conversation is finished.
+
+        Args:
+            reason: Short note on why the call is ending (e.g. "caller asked to stop").
+        """
+        logger.info("end_call: %s", reason or "conversation complete")
+        await context.session.say(
+            "Theek hai, main call rakh rahi hoon. Aapka din shubh ho."
+        ).wait_for_playout()
+        context.session.shutdown()
+        return "Call ended."
+
+    @function_tool
     async def find_nearest_health_facility(
         self,
         context: RunContext,
@@ -408,22 +450,25 @@ async def my_agent(ctx: JobContext):
         stt=deepgram.STT(model="nova-3", language="multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
-        # Groq llama-3.3-70b primary (fastest TTFT). Fallback is the *same*
-        # model on NVIDIA NIM, so a Groq outage/rate-limit doesn't change the
-        # agent's voice or Hinglish quality — only the endpoint.
+        # Groq llama-3.3-70b primary (fastest TTFT). Fallback is llama-3.1-70b
+        # on NVIDIA NIM — same family, so voice and Hinglish quality don't
+        # change when Groq rate-limits.
         # ponytail: OpenAI-compatible endpoint, so the openai plugin covers it;
         # no separate nvidia plugin needed.
+        # NIM's meta/llama-3.3-70b-instruct is listed but never responds
+        # (measured: read timeout at 45s+), which is why the fallback used to be
+        # dead weight. 3.1-70b measures 0.8s TTFT with working tool calls.
         llm=FallbackAdapter(
             [
                 groq.LLM(model="llama-3.3-70b-versatile"),
                 openai.LLM(
-                    model="meta/llama-3.3-70b-instruct",
+                    model="meta/llama-3.1-70b-instruct",
                     base_url="https://integrate.api.nvidia.com/v1",
                     api_key=os.getenv("NVIDIA_API_KEY"),
                     temperature=0.2,
                 ),
             ],
-            attempt_timeout=12.0,
+            attempt_timeout=15.0,
         ),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
@@ -547,6 +592,45 @@ async def my_agent(ctx: JobContext):
     await ctx.connect()
     await db_init_task
 
+    # ── Day 6: outbound call ────────────────────────────────────────────────
+    # Dispatch metadata (see src/outbound.py) means "call this number", so dial
+    # out before greeting. wait_until_answered lets LiveKit surface the real SIP
+    # outcome — no answer / busy / declined — as a TwirpError instead of us
+    # timing anything ourselves.
+    dial_info = {}
+    if ctx.job.metadata:
+        try:
+            dial_info = json.loads(ctx.job.metadata)
+        except json.JSONDecodeError:
+            logger.warning("ignoring non-JSON job metadata: %r", ctx.job.metadata)
+
+    phone = dial_info.get("phone", "")
+    if phone:
+        logger.info("OUTBOUND dialing %s (reason=%r)", phone, dial_info.get("reason"))
+        try:
+            await ctx.api.sip.create_sip_participant(
+                api.CreateSIPParticipantRequest(
+                    room_name=ctx.room.name,
+                    sip_trunk_id=os.environ["SIP_OUTBOUND_TRUNK_ID"],
+                    sip_call_to=phone,
+                    participant_identity=phone,
+                    participant_name=dial_info.get("name") or "Caller",
+                    wait_until_answered=True,
+                    krisp_enabled=True,
+                )
+            )
+            logger.info("OUTBOUND answered by %s", phone)
+        except api.TwirpError as e:
+            # ponytail: no retry loop — re-run src/outbound.py to redial.
+            logger.warning(
+                "OUTBOUND not connected to %s: %s (sip_status=%s)",
+                phone,
+                e.message,
+                e.metadata.get("sip_status"),
+            )
+            ctx.shutdown(reason="outbound call not answered")
+            return
+
     # Determine caller ID from connected room participant (must be after ctx.connect())
     caller_id = ""
     for p in ctx.room.remote_participants.values():
@@ -568,7 +652,12 @@ async def my_agent(ctx: JobContext):
         assistant.caller_facts = caller_record.get("facts") or {}
 
     # Step 4: Greet returning callers by name and context, or default greeting for new callers
-    if caller_record:
+    if phone:
+        greeting = _outbound_greeting(
+            dial_info.get("name") or (caller_record or {}).get("name", ""),
+            dial_info.get("reason", ""),
+        )
+    elif caller_record:
         name = caller_record.get("name", "")
         lang = caller_record.get("language_preference", "hi")
         facts = caller_record.get("facts", {})
