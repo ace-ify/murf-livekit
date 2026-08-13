@@ -44,6 +44,7 @@ import {
   useVoiceAssistant,
 } from '@livekit/components-react';
 import { AgentAudioVisualizerWave } from '@/components/agents-ui/agent-audio-visualizer-wave';
+import { CallAnalyticsDashboard } from '@/components/app/call-analytics-dashboard';
 import { useInputControls } from '@/hooks/agents-ui/use-agent-control-bar';
 import { cn } from '@/lib/shadcn/utils';
 
@@ -1111,6 +1112,10 @@ export function SamarDashboard() {
 
         {/* ── Main Workspace Grid ────────────────────────────────────────────── */}
         <main className="flex flex-1 gap-3 overflow-hidden">
+          {activeNav === 'dashboard' ? (
+            <CallAnalyticsDashboard />
+          ) : (
+            <>
           {/* ── ALL-IN-ONE MAIN BOX (Combined Stage: Sine Wave + Fading Chat Stream + Controls) ── */}
           <section className="clay-card flex flex-1 flex-col overflow-hidden p-4 md:p-5">
             {/* Box Top Header: Status Badges & Network Latency Pill */}
@@ -1538,6 +1543,8 @@ export function SamarDashboard() {
               </div>
             </div>
           </section>
+            </>
+          )}
         </main>
       </div>
     </div>

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime, timezone
 
 import httpx
 from dotenv import load_dotenv
@@ -23,6 +24,7 @@ from livekit.agents import (
 from livekit.agents.llm import FallbackAdapter
 from livekit.plugins import (
     deepgram,
+    google,
     groq,
     murf,
     noise_cancellation,
@@ -41,27 +43,38 @@ logger = logging.getLogger("agent")
 load_dotenv(".env.local")
 
 # Track: Health Access (#VoiceForBharat) — Day 5 Real Tools & Facility Locator
-SYSTEM_PROMPT = """You are Careva, a female voice assistant for Health Centres in India. Speak in natural conversational Hindi/Hinglish (Devanagari script) or English based on the caller's language.
+SYSTEM_PROMPT = """You are Careva, a female voice assistant for Health Centres in India.
+
+LANGUAGE (check before every reply):
+- Reply in the language of the caller's LAST message. Never switch on your own.
+- English caller -> plain Indian English ONLY. Zero Hindi words: no "theek hai", "haan", "ji", "aap", "dawai", "aapka din shubh ho". Use "okay", "yes", "medicine".
+- Hindi/Hinglish caller -> Hindi in Devanagari. Never mix both languages in one reply.
+
+MEDICAL EMERGENCY (overrides everything else). Heart attack, chest pain, stroke, seizure, unconscious, not breathing, heavy bleeding, poisoning/overdose, suicidal talk:
+1. FIRST sentence: call 108 now (or go to the nearest hospital). No greeting, no name, no consent question before it.
+2. Then one line of what-to-do-now (keep them still, no food or water, keep them talking).
+3. Then ask consent and call `create_escalation` with urgency="emergency".
+4. NEVER `end_call`, never say goodbye or "aapka din shubh ho". Stay on the line.
+5. Never say you can't do anything — you always have 108 and the nearest facility.
 
 ROLE & OBJECTIVES:
-1. Triage symptoms and guide callers when to visit the PHC or call 108 in emergencies.
-2. Nearest Health Centre & Hospital Lookup: When a caller asks where to go, where the nearest PHC/hospital/CHC is, or asks about OPD timings, call `find_nearest_health_facility`. If their district/pincode is already known from memory, use it automatically.
-3. Health Schemes & Vaccines: Answer questions on PHC care, vaccines, and schemes (PM-JAY, JSSK) using `search_health_guidelines`.
-4. Generic Medicines & Jan Aushadhi Savings (MCP Tool): When a caller asks about cheap generic medicines, discounts, or drug prices (e.g. Dolo, BP, Sugar/Diabetes, Acidity, Antibiotics), call `lookup_generic_medicine`.
-5. Memory & Consent: When a new caller shares their name/district, ask for permission to remember them for future calls. Call `save_caller_info` ONLY AFTER the caller explicitly agrees (says yes/haan). Never call `save_caller_info` while still asking for consent.
-6. If a caller asks to forget them or delete their data, call `forget_caller` and confirm deletion.
-7. Outbound calls: if you called them and they say stop, "abhi busy hoon", or ask not to be called again, call `end_call` immediately — do not argue or re-pitch.
-8. Human escalation: If the caller describes a red flag (chest pain, breathing trouble, severe or continuing bleeding, fainting, fits, pregnancy complication, sick newborn, poisoning, suicidal talk, or a symptom getting worse despite advice), OR asks you for a diagnosis, a medicine/dose decision, or permission to skip treatment — first ask: "Kya main iska ek chhota summary ek human health worker ko bhej sakti hoon?" Only after they clearly say yes/haan, call `create_escalation`. If they say no, call `create_escalation` with consent_given=False.
-9. If a caller asks about a case they already raised, or reads back a reference number like "ESC 0007", call `check_escalation_status`.
+1. Triage symptoms and guide callers when to visit the PHC or call 108.
+2. Nearest facility or OPD timings -> `find_nearest_health_facility` (use the district/pincode from memory if known).
+3. PHC care, vaccines, schemes (PM-JAY, JSSK) -> `search_health_guidelines`.
+4. Cheap generic medicines or drug prices (Dolo, BP, Sugar, Acidity, Antibiotics) -> `lookup_generic_medicine`.
+5. New caller shares name/district: ask permission to remember them. Call `save_caller_info` only AFTER they agree, never while still asking.
+6. Asks to be forgotten -> `forget_caller`, then confirm deletion.
+7. Outbound and they say stop / "abhi busy hoon" / don't call again -> `end_call` at once, no re-pitch. Never during an emergency.
+8. Red flag (chest pain, breathing trouble, ongoing bleeding, fainting, fits, pregnancy complication, sick newborn, poisoning, suicidal talk, or worsening despite advice), or they ask you for a diagnosis, a dose, or permission to skip treatment: ask consent in THEIR language ("May I send a short summary to a human health worker?"), then `create_escalation`. If they refuse, call it with consent_given="false". 108 always comes before this question.
+9. Asks about an existing case or reads back a ref like "ESC 0007" -> `check_escalation_status`.
 
 GUARDRAILS & STYLE:
-- Emergencies (chest pain, breathing trouble, severe bleeding, unconsciousness): Tell them to call 108 immediately.
-- Never prescribe specific medicines, doses, or give final medical diagnoses.
-- Never call `create_escalation` while you are still asking for permission, and never for routine questions (facility location, OPD timings, schemes, medicine prices, or a mild complaint you have already advised on).
-- After an escalation, say the reference number digit by digit and say a health worker will review it during working hours. Never promise an instant human callback or a time.
-- Escalating is not a substitute for 108: for an emergency tell them to call 108 first, and say the escalation is only so a worker can follow up.
-- Keep responses short: 1-2 simple sentences per turn. Stop and listen.
-- Never output raw function tags or JSON code in your dialogue."""
+- Never prescribe specific medicines, doses, or give a final diagnosis.
+- Never call `create_escalation` while still asking permission, or for routine questions (facility, timings, schemes, prices, a mild complaint already advised on).
+- After escalating, say the reference number digit by digit and that a worker reviews it in working hours. Never promise a callback or a time.
+- Escalation is not a substitute for 108.
+- 1-2 short sentences per turn. Then stop and listen.
+- Never output raw function tags or JSON in your dialogue."""
 
 GREETING = (
     "Namaste, this is Careva from the health centre. "
@@ -102,6 +115,40 @@ FUNCTION_TAG_REGEX = re.compile(
 )
 RAW_TAG_REGEX = re.compile(r"</?function[^>]*>", re.IGNORECASE)
 
+# A red flag must not depend on the LLM noticing it. This scan runs on every final
+# transcript and latches a flag that blocks end_call until 108 has been given and
+# an escalation raised. Covers English, Roman Hinglish and Devanagari.
+EMERGENCY_RE = re.compile(
+    r"heart attack|cardiac|chest pain|stroke|seizure|convuls|unconscious|not breathing|"
+    r"can'?t breathe|cannot breathe|breathing (trouble|problem|difficult)|choking|"
+    r"heavy bleeding|bleeding a lot|overdose|poison|suicid|kill (myself|himself|herself)|"
+    r"collapsed|fainted|dil ka daura|dil ka dora|seene? mein dard|chhaati mein dard|"
+    r"saans nahi|saans lene|behosh|khoon bah|khoon nahi ruk|bahut khoon|zeher|jhatke aa|mirgi|"
+    r"दिल का दौरा|सीने में दर्द|सांस नहीं|बेहोश|खून बह|ज़हर|दौरा",
+    re.IGNORECASE,
+)
+
+# Broader scan for "is a human handover justified at all". The prompt says not to
+# escalate routine complaints; llama-3.3 ignores it and files a case for a plain
+# fever (measured). create_escalation refuses unless one of these appeared in the
+# conversation, or the model itself flags urgency high/emergency.
+# ponytail: word match, not triage. It errs open — any red-flag word, any request
+# for a human, or high urgency is enough. A caller with a genuine but oddly worded
+# red flag gets through the moment they ask for a doctor. Upgrade path if that
+# proves too blunt: let the LLM justify in a `why_now` arg and judge that instead.
+RED_FLAG_RE = re.compile(
+    EMERGENCY_RE.pattern + "|"
+    r"pregnan|garbh|labour pain|labor pain|newborn|new born|infant|navjat|nawjat|"
+    r"getting worse|got worse|worse despite|bigad raha|badh raha|thik nahi ho raha|"
+    r"blood in (stool|vomit|urine)|khoon aa raha|"
+    r"talk to (a |an )?(doctor|human|health worker|nurse|someone)|speak to (a |an )?(doctor|human)|"
+    r"doctor se baat|kisi se baat|insaan se baat|human se baat|"
+    r"what (disease|illness) do|which medicine should|what dose|how many tablets|"
+    r"kaunsi dawai|kitni goli|kitni dawa|dawai band|treatment band|skip (the )?(treatment|medicine)|"
+    r"डॉक्टर से बात|कौन सी दवा|इलाज बंद",
+    re.IGNORECASE,
+)
+
 
 class CleanSentenceTokenizer(tokenize.basic.SentenceTokenizer):
     """Safety tokenizer that cleans any leaked function/XML tags before audio synthesis."""
@@ -112,6 +159,19 @@ class CleanSentenceTokenizer(tokenize.basic.SentenceTokenizer):
         if not cleaned:
             return []
         return super().tokenize(cleaned, language=language)
+
+
+def _consent_yes(val: "str | bool") -> bool:
+    """Fail-closed consent parse.
+
+    The consent params are typed `str`, not `bool`, on purpose: Groq's llama-3.3
+    intermittently emits `"consent_given": "true"` for a boolean param, which Groq
+    rejects server-side with tool_use_failed and kills the whole turn. A string
+    param can't be malformed. Anything we don't recognise means NO consent.
+    """
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("true", "yes", "haan", "haan ji", "1", "y")
 
 
 def _clean_user_id(val: str) -> str:
@@ -191,6 +251,16 @@ class Assistant(Agent):
         self.caller_user_id = caller_user_id
         self.caller_facts: dict = {}
         self.job_ctx: JobContext | None = None
+        # Day 8 analytics
+        self.call_id: int = 0
+        self.call_start_dt: datetime | None = None
+        self.escalation_created_flag: bool = False
+        self.user_turns: int = 0
+        self.agent_turns: int = 0
+        # Language mirroring + emergency latch (set from user_input_transcribed)
+        self.tts_locale: str = "en-IN"
+        self.emergency_flag: bool = False
+        self.redflag_flag: bool = False
 
     @function_tool
     async def lookup_caller(
@@ -236,7 +306,7 @@ class Assistant(Agent):
         self,
         context: RunContext,
         name: str,
-        consent_given: bool,
+        consent_given: str,
         user_id: str = "",
         language_preference: str = "hi",
         district: str = "",
@@ -248,11 +318,11 @@ class Assistant(Agent):
 
         CRITICAL HEALTH ACCESS RULE:
         You MUST ask for explicit permission before calling this tool.
-        If the caller refuses or says no, consent_given MUST be False.
+        If the caller refuses or says no, consent_given MUST be "false".
 
         Args:
             name: Caller's name.
-            consent_given: MUST be True only if the caller explicitly agreed to have their info saved.
+            consent_given: "true" ONLY if the caller explicitly agreed to have their info saved, else "false".
             user_id: Phone number or caller ID. If empty, defaults to current caller.
             language_preference: Preferred language ("hi", "en", or "hinglish").
             district: Caller's home district or town (e.g., "Varanasi", "Pune", "Patna").
@@ -260,7 +330,7 @@ class Assistant(Agent):
             ongoing_conditions: Known general conditions mentioned (e.g., "hypertension, diabetes").
             last_triage_outcome: Short summary of triage advice given (e.g., "Advised routine PHC visit for fever").
         """
-        if not consent_given:
+        if not _consent_yes(consent_given):
             logger.info("save_caller_info: Consent was denied. No data saved.")
             return (
                 "Consent was NOT given. No caller information was saved. "
@@ -345,13 +415,31 @@ class Assistant(Agent):
         """End the call politely. Call this when the caller says stop, asks not to be
         called again, says it's a bad time, or the conversation is finished.
 
+        NEVER call this when the caller has described a medical emergency (heart attack,
+        chest pain, breathing trouble, unconsciousness, heavy bleeding, poisoning,
+        suicidal talk) unless they have been told to call 108 and an escalation exists.
+
         Args:
             reason: Short note on why the call is ending (e.g. "caller asked to stop").
         """
+        # Hard guard: the LLM once said goodbye to a caller whose friend was having a
+        # heart attack. A prompt line is not enough — refuse the hangup outright.
+        if self.emergency_flag and not self.escalation_created_flag:
+            logger.warning("end_call BLOCKED: unhandled emergency (reason=%r)", reason)
+            return (
+                "REFUSED — you cannot end this call. The caller reported a medical "
+                "emergency. Right now, in their language: tell them to call 108 "
+                "immediately (or go to the nearest hospital), then ask permission to "
+                "send a summary to a human health worker and call create_escalation."
+            )
+
         logger.info("end_call: %s", reason or "conversation complete")
-        await context.session.say(
-            "Theek hai, main call rakh rahi hoon. Aapka din shubh ho."
-        ).wait_for_playout()
+        goodbye = (
+            "Okay, I'm ending the call now. Take care."
+            if self.tts_locale.startswith("en")
+            else "Theek hai, main call rakh rahi hoon. Aapka din shubh ho."
+        )
+        await context.session.say(goodbye).wait_for_playout()
         context.session.shutdown()
         return "Call ended."
 
@@ -373,7 +461,7 @@ class Assistant(Agent):
     async def create_escalation(
         self,
         context: RunContext,
-        consent_given: bool,
+        consent_given: str,
         what_happened: str,
         urgency: str = "medium",
         already_checked: str = "",
@@ -394,13 +482,12 @@ class Assistant(Agent):
         CRITICAL CONSENT RULE (same as save_caller_info):
         You MUST first ask the caller for permission to share a short summary with a
         human health worker, and only call this tool after they clearly agree. If they
-        refuse, call it with consent_given=False — nothing will be shared.
-
+        refuse, call it with consent_given="false" — nothing will be shared.
         Do NOT call this for ordinary helpline questions (facility location, OPD timings,
         scheme eligibility, medicine prices, or a mild complaint you already advised on).
 
         Args:
-            consent_given: True ONLY if the caller explicitly agreed to share the summary.
+            consent_given: "true" ONLY if the caller explicitly agreed to share the summary, else "false".
             what_happened: 1-2 sentences on who this is and what is wrong. Do not include
                 phone numbers, OTPs, Aadhaar or account numbers.
             urgency: "low", "medium", "high", or "emergency".
@@ -410,7 +497,28 @@ class Assistant(Agent):
                 "SMS", "will visit the PHC").
             caller_name: Caller's name if known.
         """
-        if not consent_given:
+        # Routine-complaint guard. Measured: llama-3.3 files a case for "my friend
+        # has fever" on the very first turn. Prompt rules alone don't hold, so the
+        # tool checks whether anything in the conversation actually warrants a human.
+        # Anything the model marks high/emergency passes — fail open on the side of
+        # a real emergency getting through.
+        if urgency.lower() not in ("high", "emergency") and not (
+            self.redflag_flag or self.emergency_flag
+        ):
+            logger.info(
+                "create_escalation REFUSED as routine (urgency=%s, what=%r)",
+                urgency,
+                what_happened[:80],
+            )
+            return (
+                "NOT escalated — this is a routine helpline question and no red flag "
+                "has been mentioned. Do not tell the caller anything was escalated. "
+                "Give simple self-care advice, say when to visit the PHC, and offer to "
+                "find the nearest facility. Escalate only if they describe a red flag, "
+                "ask to speak to a human, or say it is getting worse."
+            )
+
+        if not _consent_yes(consent_given):
             logger.info("create_escalation: consent denied, nothing shared.")
             return (
                 "Consent was NOT given. Nothing was shared with a human worker. "
@@ -435,6 +543,7 @@ class Assistant(Agent):
                 "an emergency, or to visit the nearest PHC."
             )
 
+        self.escalation_created_flag = True
         await self._publish_escalation_card(rec)
         await _post_escalation_webhook(rec)
         await _call_admin(rec)
@@ -639,17 +748,31 @@ async def my_agent(ctx: JobContext):
         stt=deepgram.STT(model="nova-3", language="multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
-        # Groq llama-3.3-70b primary (fastest TTFT). Fallback is llama-3.1-70b
-        # on NVIDIA NIM — same family, so voice and Hinglish quality don't
-        # change when Groq rate-limits.
-        # ponytail: OpenAI-compatible endpoint, so the openai plugin covers it;
+        # Gemini 2.5 Flash primary, then Groq llama-3.3-70b, then llama-3.1-70b
+        # on NVIDIA NIM. Two llama fallbacks are the same family, so voice and
+        # Hinglish quality don't change on a Groq failover.
+        # ponytail: OpenAI-compatible endpoint, so the openai plugin covers NIM;
         # no separate nvidia plugin needed.
         # NIM's meta/llama-3.3-70b-instruct is listed but never responds
-        # (measured: read timeout at 45s+), which is why the fallback used to be
-        # dead weight. 3.1-70b measures 0.8s TTFT with working tool calls.
+        # (measured: read timeout at 45s+), which is why the last fallback used
+        # to be dead weight. 3.1-70b measures 0.8s TTFT with working tool calls.
         llm=FallbackAdapter(
             [
-                groq.LLM(model="llama-3.3-70b-versatile"),
+                google.LLM(
+                    model="gemini-2.5-flash",
+                    temperature=0.2,
+                    # 2.5-flash thinks by default, which lands before the first
+                    # token and is dead air on a phone call. 0 = off.
+                    thinking_config={"thinking_budget": 0},
+                ),
+                groq.LLM(
+                    model="llama-3.3-70b-versatile",
+                    # Default temperature makes llama freestyle its tool calls
+                    # (see _consent_yes). 0.2 also matches the other two, so a
+                    # failover doesn't change how blunt the triage advice sounds.
+                    temperature=0.2,
+                    parallel_tool_calls=False,
+                ),
                 openai.LLM(
                     model="meta/llama-3.1-70b-instruct",
                     base_url="https://integrate.api.nvidia.com/v1",
@@ -663,6 +786,7 @@ async def my_agent(ctx: JobContext):
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
             voice=MURF_VOICE,
+            locale="en-IN",
             style="Conversational",
             tokenizer=CleanSentenceTokenizer(min_sentence_len=4),
             text_pacing=True,
@@ -756,6 +880,36 @@ async def my_agent(ctx: JobContext):
     assistant = Assistant()  # caller_user_id set after ctx.connect()
     assistant.job_ctx = ctx
 
+    # ── Language mirroring + emergency latch ────────────────────────────────
+    # Deepgram multi tags every final transcript with the language actually spoken.
+    # Without switching the Murf locale, English text was synthesised through the
+    # hi-IN voice — that is the bad accent. Locale fixes accent; the prompt fixes
+    # word choice. Same handler latches red flags so end_call can refuse.
+    def _set_locale(code: str) -> None:
+        locale = "en-IN" if code.lower().startswith("en") else "hi-IN"
+        if locale == assistant.tts_locale:
+            return
+        assistant.tts_locale = locale
+        try:
+            session.tts.update_options(locale=locale)
+            logger.info("LANG TTS locale -> %s (stt=%s)", locale, code)
+        except Exception as e:
+            logger.warning("LANG locale switch failed: %s", e)
+
+    @session.on("user_input_transcribed")
+    def _on_transcribed(ev) -> None:
+        if not ev.is_final:
+            return
+        if ev.language:
+            _set_locale(ev.language)
+        text = ev.transcript or ""
+        if not assistant.emergency_flag and EMERGENCY_RE.search(text):
+            assistant.emergency_flag = True
+            logger.warning("EMERGENCY detected in transcript: %r", text[:120])
+        if not assistant.redflag_flag and RED_FLAG_RE.search(text):
+            assistant.redflag_flag = True
+            logger.info("RED FLAG detected, escalation unlocked: %r", text[:120])
+
     # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
         agent=assistant,
@@ -776,16 +930,9 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    # Join the room and connect to the user, initializing DB concurrently
-    db_init_task = asyncio.create_task(db.init_db())
-    await ctx.connect()
-    await db_init_task
-
-    # ── Day 6: outbound call ────────────────────────────────────────────────
-    # Dispatch metadata (see src/outbound.py) means "call this number", so dial
-    # out before greeting. wait_until_answered lets LiveKit surface the real SIP
-    # outcome — no answer / busy / declined — as a TwirpError instead of us
-    # timing anything ourselves.
+    # Parse dispatch metadata before anything reads it. It used to be parsed down
+    # in the outbound block, below record_call_start() — which made that call raise
+    # NameError, get swallowed, leave call_id=0, and silently record zero calls.
     dial_info = {}
     if ctx.job.metadata:
         try:
@@ -793,6 +940,77 @@ async def my_agent(ctx: JobContext):
         except json.JSONDecodeError:
             logger.warning("ignoring non-JSON job metadata: %r", ctx.job.metadata)
 
+    # Join the room and connect to the user, initializing DB concurrently
+    db_init_task = asyncio.create_task(db.init_db())
+    await ctx.connect()
+    await db_init_task
+
+    # Day 8: record call start and set up turn counting / close hook
+    call_start_dt = datetime.now(timezone.utc)
+    call_id = 0
+    try:
+        call_id = await db.record_call_start(
+            room_name=ctx.room.name,
+            channel="sip" if dial_info.get("phone") else "browser",
+        )
+        assistant.call_id = call_id
+        assistant.call_start_dt = call_start_dt
+    except Exception as _e:
+        logger.warning("record_call_start failed: %s", _e)
+
+    # Turn counting. livekit-agents 1.4 has no user_speech_committed /
+    # agent_speech_committed events — those handlers never fired, so every call
+    # looked like a silent disconnect. conversation_item_added is the real event.
+    @session.on("conversation_item_added")
+    def _on_conversation_item(ev) -> None:
+        role = getattr(ev.item, "role", "")
+        if role == "user":
+            assistant.user_turns += 1
+        elif role == "assistant":
+            assistant.agent_turns += 1
+
+    finalized = False
+
+    async def _finalize_call(override_reason: str = "") -> None:
+        nonlocal finalized
+        if not call_id or finalized:
+            return
+        finalized = True
+        elapsed = (datetime.now(timezone.utc) - call_start_dt).total_seconds()
+        if assistant.escalation_created_flag:
+            outcome, reason = "success", "escalation_created"
+        elif assistant.user_turns >= 2 and assistant.agent_turns >= 2:
+            outcome, reason = "success", "conversation_completed"
+        elif assistant.user_turns == 0:
+            outcome, reason = "no_answer", override_reason or "silent_disconnect"
+        else:
+            outcome, reason = "failed", override_reason or "user_declined_early"
+        try:
+            await db.record_call_end(
+                call_id=call_id,
+                outcome=outcome,
+                outcome_reason=reason,
+                escalation_created=assistant.escalation_created_flag,
+                user_turns=assistant.user_turns,
+                agent_turns=assistant.agent_turns,
+                duration_secs=elapsed,
+            )
+        except Exception as _e:
+            logger.warning("record_call_end failed: %s", _e)
+
+    # Finalize on job shutdown, not on the session "close" event: an
+    # ensure_future there loses the race with the loop closing, which left rows
+    # stuck at outcome='in_progress'. LiveKit awaits shutdown callbacks.
+    async def _on_shutdown() -> None:
+        await _finalize_call()
+
+    ctx.add_shutdown_callback(_on_shutdown)
+
+    # ── Day 6: outbound call ────────────────────────────────────────────────
+    # Dispatch metadata (see src/outbound.py) means "call this number", so dial
+    # out before greeting. wait_until_answered lets LiveKit surface the real SIP
+    # outcome — no answer / busy / declined — as a TwirpError instead of us
+    # timing anything ourselves. dial_info is parsed at the top of this function.
     phone = dial_info.get("phone", "")
     if phone:
         logger.info("OUTBOUND dialing %s (reason=%r)", phone, dial_info.get("reason"))
@@ -817,6 +1035,7 @@ async def my_agent(ctx: JobContext):
                 e.message,
                 e.metadata.get("sip_status"),
             )
+            await _finalize_call(override_reason="outbound_not_answered")
             ctx.shutdown(reason="outbound call not answered")
             return
 
@@ -868,6 +1087,9 @@ async def my_agent(ctx: JobContext):
                 greeting = f"नमस्ते {name} जी, स्वास्थ्य केंद्र में आपका फिर से स्वागत है। आज मैं आपकी क्या सहायता कर सकती हूँ?"
     else:
         greeting = GREETING
+
+    # Match the voice locale to the greeting we are about to speak.
+    _set_locale("hi" if re.search(r"[ऀ-ॿ]", greeting) else "en")
 
     # Greet only after the caller is actually subscribed, so the opening line
     # isn't played to an empty room.

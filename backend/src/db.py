@@ -82,6 +82,26 @@ async def init_db(db_path: str = "") -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_esc_status ON escalations(status, created_at DESC)"
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calls (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_name          TEXT DEFAULT '',
+                channel            TEXT DEFAULT 'browser',
+                started_at         TEXT NOT NULL,
+                ended_at           TEXT,
+                duration_secs      REAL,
+                outcome            TEXT DEFAULT 'in_progress',
+                outcome_reason     TEXT DEFAULT '',
+                escalation_created INTEGER DEFAULT 0,
+                user_turns         INTEGER DEFAULT 0,
+                agent_turns        INTEGER DEFAULT 0
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_calls_outcome ON calls(outcome, started_at DESC)"
+        )
         await db.commit()
     logger.info("Database initialized at %s", db_path)
 
@@ -471,3 +491,141 @@ async def update_escalation_status(
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ─── Day 8: call analytics ───────────────────────────────────────────────────
+
+async def record_call_start(
+    room_name: str = "",
+    channel: str = "browser",
+    db_path: str = "",
+) -> int:
+    """Insert an in_progress call row. Returns the new row id."""
+    db_path = _ensure_db_dir(db_path)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("PRAGMA busy_timeout=5000")
+        cursor = await db.execute(
+            "INSERT INTO calls (room_name, channel, started_at, outcome) VALUES (?, ?, ?, 'in_progress')",
+            (room_name or "", channel or "browser", now_iso),
+        )
+        await db.commit()
+        return cursor.lastrowid or 0
+
+
+async def record_call_end(
+    call_id: int,
+    outcome: str,
+    outcome_reason: str = "",
+    escalation_created: bool = False,
+    user_turns: int = 0,
+    agent_turns: int = 0,
+    duration_secs: float = 0.0,
+    db_path: str = "",
+) -> None:
+    """Update the call row with its final outcome. No-op if already finalised."""
+    if not call_id:
+        return
+    valid = ("success", "failed", "no_answer")
+    final = outcome if outcome in valid else "failed"
+    db_path = _ensure_db_dir(db_path)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("PRAGMA busy_timeout=5000")
+        await db.execute(
+            """
+            UPDATE calls SET
+                ended_at           = ?,
+                duration_secs      = ?,
+                outcome            = ?,
+                outcome_reason     = ?,
+                escalation_created = ?,
+                user_turns         = ?,
+                agent_turns        = ?
+            WHERE id = ? AND outcome = 'in_progress'
+            """,
+            (
+                now_iso,
+                round(duration_secs, 1),
+                final,
+                outcome_reason or "",
+                1 if escalation_created else 0,
+                user_turns,
+                agent_turns,
+                call_id,
+            ),
+        )
+        await db.commit()
+    logger.info(
+        "Call %d ended: outcome=%s reason=%s duration=%.1fs turns(u=%d a=%d)",
+        call_id, final, outcome_reason, duration_secs, user_turns, agent_turns,
+    )
+
+
+async def get_call_stats(db_path: str = "") -> dict[str, Any]:
+    """Aggregate counts for the analytics dashboard."""
+    db_path = _ensure_db_dir(db_path)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN outcome = 'success'     THEN 1 ELSE 0 END) AS successful,
+                    SUM(CASE WHEN outcome = 'failed'      THEN 1 ELSE 0 END) AS failed,
+                    SUM(CASE WHEN outcome = 'no_answer'   THEN 1 ELSE 0 END) AS no_answer,
+                    SUM(CASE WHEN outcome = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+                    ROUND(AVG(CASE WHEN duration_secs IS NOT NULL
+                                    AND outcome NOT IN ('in_progress')
+                                   THEN duration_secs END), 1) AS avg_duration_secs
+                FROM calls
+                """
+            ) as cursor:
+                row = await cursor.fetchone()
+        total       = int(row["total"]       or 0)
+        successful  = int(row["successful"]  or 0)
+        failed      = int(row["failed"]      or 0)
+        no_answer   = int(row["no_answer"]   or 0)
+        in_progress = int(row["in_progress"] or 0)
+        avg_dur     = float(row["avg_duration_secs"] or 0.0)
+        completed   = total - in_progress
+        success_rate = round((successful / completed * 100) if completed > 0 else 0)
+        return {
+            "total": total,
+            "successful": successful,
+            "failed": failed,
+            "no_answer": no_answer,
+            "in_progress": in_progress,
+            "avg_duration_secs": avg_dur,
+            "success_rate": success_rate,
+        }
+    except Exception as e:
+        logger.warning("get_call_stats failed: %s", e)
+        return {
+            "total": 0, "successful": 0, "failed": 0,
+            "no_answer": 0, "in_progress": 0,
+            "avg_duration_secs": 0.0, "success_rate": 0,
+        }
+
+
+async def list_recent_calls(limit: int = 20, db_path: str = "") -> list[dict[str, Any]]:
+    """Recent call records with no PII. Newest first."""
+    db_path = _ensure_db_dir(db_path)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT id, room_name, channel, started_at, ended_at,
+                       duration_secs, outcome, outcome_reason,
+                       escalation_created, user_turns, agent_turns
+                FROM calls ORDER BY started_at DESC LIMIT ?
+                """,
+                (limit,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning("list_recent_calls failed: %s", e)
+        return []
