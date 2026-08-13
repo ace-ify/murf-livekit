@@ -13,6 +13,10 @@ KMS
 .ruff_cache
 data/*.db
 data/*.db-journal
+# WAL side files — Day 7 turned on journal_mode=WAL so Node and the agent can
+# write helpline.db at the same time.
+data/*.db-wal
+data/*.db-shm
 
 # Claude Code
 .claude/settings.local.json

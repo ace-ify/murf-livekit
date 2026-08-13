@@ -355,6 +355,19 @@ export function SamarDashboard() {
         } catch (err) {
           console.error('Error parsing facility_card:', err);
         }
+      } else if (topic === 'escalation_card') {
+        // Day 7 — the agent handed this caller to a human; show the reference number.
+        try {
+          const data = JSON.parse(new TextDecoder().decode(payload));
+          if (data?.ref) {
+            toast.warning(`Sent to a human health worker — ${data.ref}`, {
+              description: `Urgency: ${data.urgency}. A health worker will review it during working hours.`,
+              duration: 12000,
+            });
+          }
+        } catch (err) {
+          console.error('Error parsing escalation_card:', err);
+        }
       }
     };
 

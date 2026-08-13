@@ -4,6 +4,7 @@ import logging
 import os
 import re
 
+import httpx
 from dotenv import load_dotenv
 from livekit import api, rtc
 from livekit.agents import (
@@ -33,6 +34,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 import db
 import facilities
 import rag
+from outbound import place_call as _place_call
 
 logger = logging.getLogger("agent")
 
@@ -49,10 +51,15 @@ ROLE & OBJECTIVES:
 5. Memory & Consent: When a new caller shares their name/district, ask for permission to remember them for future calls. Call `save_caller_info` ONLY AFTER the caller explicitly agrees (says yes/haan). Never call `save_caller_info` while still asking for consent.
 6. If a caller asks to forget them or delete their data, call `forget_caller` and confirm deletion.
 7. Outbound calls: if you called them and they say stop, "abhi busy hoon", or ask not to be called again, call `end_call` immediately — do not argue or re-pitch.
+8. Human escalation: If the caller describes a red flag (chest pain, breathing trouble, severe or continuing bleeding, fainting, fits, pregnancy complication, sick newborn, poisoning, suicidal talk, or a symptom getting worse despite advice), OR asks you for a diagnosis, a medicine/dose decision, or permission to skip treatment — first ask: "Kya main iska ek chhota summary ek human health worker ko bhej sakti hoon?" Only after they clearly say yes/haan, call `create_escalation`. If they say no, call `create_escalation` with consent_given=False.
+9. If a caller asks about a case they already raised, or reads back a reference number like "ESC 0007", call `check_escalation_status`.
 
 GUARDRAILS & STYLE:
 - Emergencies (chest pain, breathing trouble, severe bleeding, unconsciousness): Tell them to call 108 immediately.
 - Never prescribe specific medicines, doses, or give final medical diagnoses.
+- Never call `create_escalation` while you are still asking for permission, and never for routine questions (facility location, OPD timings, schemes, medicine prices, or a mild complaint you have already advised on).
+- After an escalation, say the reference number digit by digit and say a health worker will review it during working hours. Never promise an instant human callback or a time.
+- Escalating is not a substitute for 108: for an emergency tell them to call 108 first, and say the escalation is only so a worker can follow up.
 - Keep responses short: 1-2 simple sentences per turn. Stop and listen.
 - Never output raw function tags or JSON code in your dialogue."""
 
@@ -116,6 +123,66 @@ def _clean_user_id(val: str) -> str:
     ):
         return ""
     return s
+
+
+# Day 7 — where an escalation gets pinged to a human. Optional: SQLite is the
+# source of truth, the webhook is a best-effort notification.
+ESCALATION_WEBHOOK_URL = os.getenv("ESCALATION_WEBHOOK_URL", "")
+# When set, Careva calls this number the moment an escalation is confirmed so the
+# human gets a real phone alert, not just a Discord ping.
+ESCALATION_ADMIN_PHONE = os.getenv("ESCALATION_ADMIN_PHONE", "")
+
+
+def _room_name(ctx: JobContext | None) -> str:
+    try:
+        return ctx.room.name or "web"  # type: ignore[union-attr]
+    except Exception:
+        return "web"
+
+
+async def _post_escalation_webhook(rec: dict) -> None:
+    """Best-effort Discord-compatible ping. Never fails the tool.
+
+    Fields arrive already scrubbed by db.create_escalation, so raw PII cannot reach here.
+    """
+    if not ESCALATION_WEBHOOK_URL:
+        return
+    content = (
+        f"**{rec['ref']}** · urgency **{rec['urgency']}** · lang {rec['language']}\n"
+        f"Caller: {rec['caller_name'] or 'unknown'} ({rec['caller_user_id']})\n"
+        f"What happened: {rec['what_happened']}\n"
+        f"Agent already checked: {rec['already_checked'] or '-'}\n"
+        f"Follow-up: {rec['followup_method'] or '-'}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            # Discord rejects content over 2000 chars and would fail silently.
+            await client.post(ESCALATION_WEBHOOK_URL, json={"content": content[:1900]})
+    except Exception as e:
+        logger.warning("escalation webhook failed for %s: %s", rec["ref"], e)
+
+
+async def _call_admin(rec: dict) -> None:
+    """Best-effort outbound call to the admin number when an escalation fires.
+
+    Never raises — a failed call must not lose the escalation row already committed.
+    Needs SIP_OUTBOUND_TRUNK_ID set and the agent running (same precondition as Day 6).
+    """
+    if not ESCALATION_ADMIN_PHONE:
+        return
+    try:
+        name = rec.get("caller_name") or "a caller"
+        urgency = rec.get("urgency", "medium")
+        reason = (
+            f"URGENT escalation {rec['ref']} (urgency: {urgency}) — "
+            f"{name} needs human help: {(rec.get('what_happened') or '')[:80]}"
+        )
+        await _place_call(ESCALATION_ADMIN_PHONE, name="Health Worker", reason=reason)
+        logger.info(
+            "admin call dispatched for %s to %s", rec["ref"], ESCALATION_ADMIN_PHONE
+        )
+    except Exception as e:
+        logger.warning("admin call failed for %s: %s", rec["ref"], e)
 
 
 class Assistant(Agent):
@@ -287,6 +354,128 @@ class Assistant(Agent):
         ).wait_for_playout()
         context.session.shutdown()
         return "Call ended."
+
+    async def _publish_escalation_card(self, rec: dict) -> None:
+        """Push the escalation to the UI, same data-channel path as the facility card."""
+        if not (
+            self.job_ctx and self.job_ctx.room and self.job_ctx.room.local_participant
+        ):
+            return
+        try:
+            payload = json.dumps({"type": "escalation_card", **rec}).encode("utf-8")
+            await self.job_ctx.room.local_participant.publish_data(
+                payload, topic="escalation_card"
+            )
+        except Exception as e:
+            logger.warning("Failed to publish escalation_card to room: %s", e)
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        consent_given: bool,
+        what_happened: str,
+        urgency: str = "medium",
+        already_checked: str = "",
+        followup_method: str = "",
+        caller_name: str = "",
+    ) -> str:
+        """Hand this caller over to a human health worker and give them a reference number.
+
+        Call this ONLY for one of these two situations:
+        1. A red-flag or emergency-like clinical situation needing a human clinician
+           (chest pain, breathing difficulty, severe or continuing bleeding, fainting or
+           unconsciousness, fits, a pregnancy complication, a sick newborn, poisoning or
+           overdose, suicidal talk, or a symptom getting worse despite advice).
+        2. The caller asks for something you must not decide: a diagnosis, whether to
+           start or stop a medicine, a dose, or whether they may skip treatment or
+           hospital care.
+
+        CRITICAL CONSENT RULE (same as save_caller_info):
+        You MUST first ask the caller for permission to share a short summary with a
+        human health worker, and only call this tool after they clearly agree. If they
+        refuse, call it with consent_given=False — nothing will be shared.
+
+        Do NOT call this for ordinary helpline questions (facility location, OPD timings,
+        scheme eligibility, medicine prices, or a mild complaint you already advised on).
+
+        Args:
+            consent_given: True ONLY if the caller explicitly agreed to share the summary.
+            what_happened: 1-2 sentences on who this is and what is wrong. Do not include
+                phone numbers, OTPs, Aadhaar or account numbers.
+            urgency: "low", "medium", "high", or "emergency".
+            already_checked: What you already did or advised (e.g. "advised 108, gave
+                nearest CHC, checked Jan Aushadhi rate").
+            followup_method: How they want to be reached (e.g. "call back on this number",
+                "SMS", "will visit the PHC").
+            caller_name: Caller's name if known.
+        """
+        if not consent_given:
+            logger.info("create_escalation: consent denied, nothing shared.")
+            return (
+                "Consent was NOT given. Nothing was shared with a human worker. "
+                "Reassure the caller their privacy is respected, and if this is an "
+                "emergency tell them to call 108."
+            )
+
+        target_id = self.caller_user_id or f"anon-{_room_name(self.job_ctx)}"
+        rec = await db.create_escalation(
+            caller_user_id=target_id,
+            what_happened=what_happened,
+            urgency=urgency,
+            caller_name=caller_name or self.caller_facts.get("name", ""),
+            language=self.caller_facts.get("language_preference", "hi"),
+            already_checked=already_checked,
+            followup_method=followup_method,
+            callback_phone=target_id if target_id.startswith("+") else "",
+        )
+        if not rec:
+            return (
+                "Could not create the escalation. Tell the caller to call 108 if this is "
+                "an emergency, or to visit the nearest PHC."
+            )
+
+        await self._publish_escalation_card(rec)
+        await _post_escalation_webhook(rec)
+        await _call_admin(rec)
+
+        return (
+            f"Escalation {rec['ref']} recorded (urgency: {rec['urgency']}"
+            f"{', updated the existing case' if rec['deduped'] else ''}). "
+            f"Say the reference number {rec['ref']} out loud, digit by digit. Say a health "
+            "worker will review it during working hours — do NOT promise an immediate "
+            "call. If urgency is high or emergency, repeat that they should call 108 or go "
+            "to the nearest facility now, without waiting for us."
+        )
+
+    @function_tool
+    async def check_escalation_status(self, context: RunContext, ref: str = "") -> str:
+        """Check what happened to an escalation the caller has a reference number for.
+
+        Use when the caller says "mere case ka kya hua", "koi update hai?", or reads back
+        a reference number like "ESC 0007".
+
+        Args:
+            ref: The reference as the caller said it ("ESC-0007", "esc 7"). If empty, uses
+                the caller's most recent case.
+        """
+        if ref.strip():
+            rec = await db.get_escalation(ref, caller_user_id=self.caller_user_id)
+        else:
+            rows = await db.list_escalations(status="")
+            rec = next(
+                (r for r in rows if r["caller_user_id"] == self.caller_user_id), None
+            )
+        if not rec:
+            return (
+                "No escalation found for this caller with that reference. Ask them to "
+                "repeat the number, or offer to raise a fresh escalation."
+            )
+        return (
+            f"{rec['ref']}: status {rec['status']}, urgency {rec['urgency']}, raised "
+            f"{rec['created_at']}. Note: {rec['resolution_note'] or 'none yet'}. "
+            "Tell the caller the status plainly. Do not promise a time."
+        )
 
     @function_tool
     async def find_nearest_health_facility(

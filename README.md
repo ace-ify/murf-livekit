@@ -240,6 +240,32 @@ Careva (Health Access Voice Agent) integrates real-time public APIs with robust 
 
 ---
 
+## Day 7: Human Escalation
+
+Careva hands a case to a human in two situations only: a **red-flag symptom** (chest pain,
+breathing trouble, severe bleeding, fainting, fits, pregnancy complication, sick newborn,
+poisoning, suicidal talk, or something worsening despite advice) or a **decision it must not
+make** (a diagnosis, a medicine/dose call, permission to skip treatment). Routine questions
+— facility lookup, OPD timings, schemes, medicine prices — never create a request.
+
+| Piece | Where |
+| :--- | :--- |
+| `create_escalation` / `check_escalation_status` tools | `backend/src/agent.py` |
+| Store, PII scrub, dedupe, status | `backend/src/db.py` (`escalations` table) |
+| Human queue (list / acknowledge / resolve) | `http://localhost:3000/admin` |
+| List, resolve, and call the caller back | `uv run src/escalations.py …` |
+| Optional Discord ping | `ESCALATION_WEBHOOK_URL` |
+
+It asks permission before sharing anything ("Kya main iska ek chhota summary ek human health
+worker ko bhej sakti hoon?"); a "no" writes nothing. The summary is six fields, never the
+transcript, and phone numbers / OTPs / Aadhaar / account numbers are stripped before storage.
+The caller gets a spoken reference like `ESC-0007` plus an honest next step — reviewed during
+working hours, no promise of an instant callback. Repeating the same complaint updates the
+open case instead of creating a second one. Full detail, including the `/admin` auth caveat:
+[backend/README.md](./backend/README.md#day-7-knowing-when-to-ask-for-human-help).
+
+---
+
 ## Project Structure
 
 ```
@@ -254,6 +280,7 @@ murf-livekit-starter/
 ├── frontend/                # Next.js UI for voice sessions
 │   ├── app/
 │   │   ├── page.tsx         # Main page
+│   │   ├── admin/           # Day 7 — human escalation queue
 │   │   └── api/token/       # LiveKit token endpoint (dev)
 │   ├── components/          # UI (agents-ui, app config, theme)
 │   ├── app-config.ts        # Branding, title, button text, accent

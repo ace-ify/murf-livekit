@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import agent
 import db
 from agent import Assistant
 
@@ -112,3 +113,66 @@ async def test_find_nearest_health_facility_tool():
         or "pune" in res_chained.lower()
     )
     assert "anusaar" in res_chained
+
+
+# ─── Day 7: human escalation tools ───────────────────────────────────────────
+
+RED_FLAG = "Papa ko seene mein dard aur saans phool rahi hai, 2 din se."
+
+
+@pytest.mark.asyncio
+async def test_create_escalation_refuses_without_consent(test_db: str):
+    await db.init_db(test_db)
+    assistant = Assistant(caller_user_id="+919876543210")
+    ctx = MagicMock()
+
+    res = await assistant.create_escalation(
+        ctx, consent_given=False, what_happened=RED_FLAG, urgency="emergency"
+    )
+    assert "Consent was NOT given" in res
+    assert await db.list_escalations(db_path=test_db) == []
+
+
+@pytest.mark.asyncio
+async def test_create_escalation_returns_ref_then_status_lookup(test_db: str):
+    await db.init_db(test_db)
+    # job_ctx stays None on purpose: proves the publish guard holds off-room.
+    assistant = Assistant(caller_user_id="+919876543210")
+    ctx = MagicMock()
+
+    res = await assistant.create_escalation(
+        ctx,
+        consent_given=True,
+        what_happened=RED_FLAG,
+        urgency="emergency",
+        already_checked="advised 108, gave nearest CHC",
+        followup_method="call back on this number",
+        caller_name="Ramesh",
+    )
+    assert "ESC-0001" in res
+    assert "do NOT promise an immediate" in res
+
+    rows = await db.list_escalations(db_path=test_db)
+    assert len(rows) == 1 and rows[0]["callback_phone"] == "+919876543210"
+
+    status = await assistant.check_escalation_status(ctx, ref="esc 1")
+    assert "ESC-0001" in status and "status open" in status
+
+    # Another caller's session cannot read this case.
+    stranger = Assistant(caller_user_id="+910000000000")
+    assert "No escalation found" in await stranger.check_escalation_status(
+        ctx, ref="ESC-0001"
+    )
+
+
+@pytest.mark.asyncio
+async def test_escalation_survives_dead_webhook(test_db: str, monkeypatch):
+    await db.init_db(test_db)
+    monkeypatch.setattr(agent, "ESCALATION_WEBHOOK_URL", "http://127.0.0.1:1/hook")
+    assistant = Assistant(caller_user_id="+919876543210")
+
+    res = await assistant.create_escalation(
+        MagicMock(), consent_given=True, what_happened=RED_FLAG, urgency="high"
+    )
+    assert "ESC-0001" in res
+    assert len(await db.list_escalations(db_path=test_db)) == 1

@@ -215,6 +215,65 @@ so no-answer/busy/declined surface as a `TwirpError` and the job shuts down inst
 talking to a dead line. The opening line (`_outbound_greeting`) states who is calling, why,
 and that saying "stop" ends the call — `end_call` handles that immediately.
 
+## Day 7: Knowing When to Ask for Human Help
+
+Careva stops and creates a request for a human in exactly two situations:
+
+1. **Red flag / clinical emergency** — chest pain, breathing trouble, severe or continuing
+   bleeding, fainting, fits, pregnancy complication, sick newborn, poisoning, suicidal talk,
+   or a symptom getting worse despite advice.
+2. **A decision it must not make** — a diagnosis, starting/stopping a medicine, a dose, or
+   permission to skip treatment or hospital care.
+
+Everything else (facility lookup, OPD timings, schemes, medicine prices, a mild complaint it
+already advised on) stays with the agent. `tests/test_agent.py` asserts both paths.
+
+**Permission first.** The agent asks *"Kya main iska ek chhota summary ek human health worker
+ko bhej sakti hoon?"* and only then calls `create_escalation`. A refusal calls the same tool
+with `consent_given=False`, which writes nothing at all.
+
+**What the human gets** — six fields, never the transcript: who, what happened, what the
+agent already checked, urgency (`low|medium|high|emergency`), the caller's language, and
+their preferred follow-up method.
+
+**PII scrub.** `db.scrub_pii` strips phone numbers, Aadhaar, long digit runs, and any short
+number sitting next to `otp`/`pin`/`upi`/`account`/`card` before the row is written — one
+choke point, so what is stored and what the webhook sends cannot diverge. Clinical numbers
+survive on purpose: `108`, `1075`, `14555`, `BP 140/90`, `45-55`, `pin code 221002`. A bare
+`pin 221002` is scrubbed — losing a pincode is cheaper than leaking a PIN.
+
+**Reference number.** `ESC-0007`, derived from the row id (`AUTOINCREMENT`, so a number is
+never reused). The agent speaks it digit by digit and says a worker will review it during
+working hours — it never promises an immediate callback. `check_escalation_status` reads it
+back on a later call, scoped to the owning caller.
+
+**Dedupe.** A partial unique index (`caller_user_id, dedupe_key WHERE status='open'`) makes
+the same complaint from the same caller update the existing case instead of opening a second
+one — decided atomically inside SQLite, so two concurrent sessions cannot both insert.
+Resolving a case frees the slot.
+
+**Where requests land.** `data/helpline.db` is the source of truth; the human queue is the
+Next.js page at `/admin`. Set `ESCALATION_WEBHOOK_URL` for an extra Discord ping (optional,
+best-effort — a dead webhook never fails the tool or loses the row).
+
+Working the queue:
+
+```bash
+uv run src/escalations.py list
+uv run src/escalations.py list --status resolved
+uv run src/escalations.py resolve ESC-0001 --note "ANM visited, referred to CHC"
+
+# Day 6 callback: tell the caller it's resolved (needs SIP + the agent running)
+uv run src/escalations.py resolve ESC-0001 --note "done" --call
+```
+
+`/admin` writes status straight into SQLite and prints the `--call` command per row. There is
+deliberately no HTTP server and no poller on the Python side.
+
+> **Security:** `/admin` and its GET are unauthenticated for local dev and they list health
+> complaints. Status *writes* need `ADMIN_TOKEN` and fail closed when it is unset. Put real
+> auth in front of that page before deploying it anywhere public.
+
 ## Testing
 
 The project includes an eval suite based on the LiveKit Agents [testing framework](https://docs.livekit.io/agents/build/testing/):
@@ -254,9 +313,12 @@ docker run --env-file .env.local murf-voice-agent
 backend/
 ├── src/
 │   └── agent.py          # Agent entrypoint — pipeline, prompt, config
+│   └── db.py             # SQLite: caller memory + Day 7 escalations, PII scrub
 │   └── outbound.py       # Day 6 — dispatch an outbound call
+│   └── escalations.py    # Day 7 — list/resolve escalations, callback the caller
 ├── tests/
-│   └── test_agent.py     # LLM-judged eval suite
+│   └── test_agent.py         # LLM-judged eval suite
+│   └── test_escalations.py   # Day 7 — refs, dedupe, scrub, status transitions
 ├── .env.example           # Environment variable template
 ├── pyproject.toml         # Python dependencies (uv)
 ├── Dockerfile             # Production container
