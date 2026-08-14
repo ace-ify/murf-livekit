@@ -50,8 +50,13 @@ interface ApiResponse {
 }
 
 const EMPTY_STATS: CallStats = {
-  total: 0, successful: 0, failed: 0, no_answer: 0,
-  in_progress: 0, avg_duration_secs: 0, success_rate: 0,
+  total: 0,
+  successful: 0,
+  failed: 0,
+  no_answer: 0,
+  in_progress: 0,
+  avg_duration_secs: 0,
+  success_rate: 0,
 };
 
 function formatDuration(secs: number | null): string {
@@ -90,10 +95,22 @@ function humanReason(reason: string): string {
 }
 
 const OUTCOME_CONFIG = {
-  success: { label: 'Success', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-300' },
-  failed: { label: 'Failed', cls: 'bg-rose-100 text-rose-800 dark:bg-rose-900/70 dark:text-rose-300' },
-  no_answer: { label: 'No answer', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/70 dark:text-amber-300' },
-  in_progress: { label: 'Live', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-900/70 dark:text-sky-300 animate-pulse' },
+  success: {
+    label: 'Success',
+    cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-300',
+  },
+  failed: {
+    label: 'Failed',
+    cls: 'bg-rose-100 text-rose-800 dark:bg-rose-900/70 dark:text-rose-300',
+  },
+  no_answer: {
+    label: 'No answer',
+    cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/70 dark:text-amber-300',
+  },
+  in_progress: {
+    label: 'Live',
+    cls: 'bg-sky-100 text-sky-800 dark:bg-sky-900/70 dark:text-sky-300 animate-pulse',
+  },
 };
 
 function StatCard({
@@ -112,14 +129,16 @@ function StatCard({
   return (
     <div className="clay-card flex flex-col gap-2 p-4">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <span className="text-[10px] font-black tracking-wider text-slate-500 uppercase dark:text-slate-400">
           {label}
         </span>
         <div className={cn('flex size-7 items-center justify-center rounded-xl', color)}>
           <Icon className="size-3.5" />
         </div>
       </div>
-      <span className="text-3xl font-black tabular-nums text-slate-900 dark:text-white">{value}</span>
+      <span className="text-3xl font-black text-slate-900 tabular-nums dark:text-white">
+        {value}
+      </span>
       {sub && <span className="text-[10px] font-semibold text-slate-400">{sub}</span>}
     </div>
   );
@@ -156,7 +175,6 @@ export function CallAnalyticsDashboard() {
   const failures = data?.failure_breakdown ?? [];
 
   const successPct = stats.success_rate;
-  const failedPct = stats.total > 0 ? Math.round(((stats.failed + stats.no_answer) / (stats.total - stats.in_progress || 1)) * 100) : 0;
 
   return (
     <section className="clay-card flex flex-1 flex-col gap-4 overflow-y-auto p-5">
@@ -164,7 +182,7 @@ export function CallAnalyticsDashboard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <Activity className="size-4 stroke-[2.5] text-sky-500" />
-          <h2 className="text-sm font-black uppercase tracking-wide text-slate-900 dark:text-white">
+          <h2 className="text-sm font-black tracking-wide text-slate-900 uppercase dark:text-white">
             Call Analytics
           </h2>
           <span className="clay-pill bg-white/80 px-2 py-0.5 font-mono text-[9px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -174,7 +192,11 @@ export function CallAnalyticsDashboard() {
         <div className="flex items-center gap-2">
           {lastUpdated && (
             <span className="font-mono text-[10px] text-slate-400">
-              {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {lastUpdated.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })}
             </span>
           )}
           <button
@@ -190,7 +212,8 @@ export function CallAnalyticsDashboard() {
 
       {/* Success definition notice */}
       <div className="clay-card-flat rounded-2xl border border-emerald-200/60 bg-emerald-50/60 px-4 py-2.5 text-[11px] font-medium text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/40 dark:text-emerald-300">
-        <span className="font-black">Success = </span>caller received triage guidance or was escalated to a human health worker
+        <span className="font-black">Success = </span>caller received triage guidance or was
+        escalated to a human health worker
       </div>
 
       {/* Stat Cards */}
@@ -199,7 +222,11 @@ export function CallAnalyticsDashboard() {
           icon={PhoneCall}
           label="Total Calls"
           value={stats.total}
-          sub={stats.in_progress > 0 ? `${stats.in_progress} live` : `avg ${formatDuration(stats.avg_duration_secs)}`}
+          sub={
+            stats.in_progress > 0
+              ? `${stats.in_progress} live`
+              : `avg ${formatDuration(stats.avg_duration_secs)}`
+          }
           color="bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-300"
         />
         <StatCard
@@ -230,8 +257,12 @@ export function CallAnalyticsDashboard() {
         {/* Success rate bar */}
         <div className="clay-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Success Rate</span>
-            <span className="font-mono text-xl font-black text-emerald-600 dark:text-emerald-400">{successPct}%</span>
+            <span className="text-[10px] font-black tracking-wider text-slate-500 uppercase">
+              Success Rate
+            </span>
+            <span className="font-mono text-xl font-black text-emerald-600 dark:text-emerald-400">
+              {successPct}%
+            </span>
           </div>
           <div className="h-3 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
             <div
@@ -246,14 +277,19 @@ export function CallAnalyticsDashboard() {
           {stats.avg_duration_secs > 0 && (
             <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500">
               <Clock className="size-3 shrink-0" />
-              <span>Avg duration: <strong className="text-slate-700 dark:text-slate-300">{formatDuration(stats.avg_duration_secs)}</strong></span>
+              <span>
+                Avg duration:{' '}
+                <strong className="text-slate-700 dark:text-slate-300">
+                  {formatDuration(stats.avg_duration_secs)}
+                </strong>
+              </span>
             </div>
           )}
         </div>
 
         {/* Failure type breakdown */}
         <div className="clay-card p-4">
-          <span className="mb-3 block text-[10px] font-black uppercase tracking-wider text-slate-500">
+          <span className="mb-3 block text-[10px] font-black tracking-wider text-slate-500 uppercase">
             Failure Breakdown
           </span>
           {failures.length === 0 ? (
@@ -268,8 +304,12 @@ export function CallAnalyticsDashboard() {
                 return (
                   <div key={f.outcome_reason} className="flex flex-col gap-0.5">
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-semibold text-slate-600 dark:text-slate-300">{humanReason(f.outcome_reason)}</span>
-                      <span className="font-mono font-bold text-slate-500">{f.cnt} ({pct}%)</span>
+                      <span className="font-semibold text-slate-600 dark:text-slate-300">
+                        {humanReason(f.outcome_reason)}
+                      </span>
+                      <span className="font-mono font-bold text-slate-500">
+                        {f.cnt} ({pct}%)
+                      </span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                       <div
@@ -290,7 +330,9 @@ export function CallAnalyticsDashboard() {
         <div className="clay-card p-4">
           <div className="mb-2 flex items-center gap-1.5">
             <TrendingUp className="size-3.5 text-slate-400" />
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Call Outcomes</span>
+            <span className="text-[10px] font-black tracking-wider text-slate-500 uppercase">
+              Call Outcomes
+            </span>
           </div>
           <div className="flex h-4 overflow-hidden rounded-full">
             {stats.successful > 0 && (
@@ -323,10 +365,24 @@ export function CallAnalyticsDashboard() {
             )}
           </div>
           <div className="mt-2 flex flex-wrap gap-3 text-[10px] font-semibold">
-            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-400" />Success</span>
-            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-rose-400" />Failed</span>
-            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-400" />No answer</span>
-            {stats.in_progress > 0 && <span className="flex items-center gap-1"><span className="size-2 animate-pulse rounded-full bg-sky-400" />Live</span>}
+            <span className="flex items-center gap-1">
+              <span className="size-2 rounded-full bg-emerald-400" />
+              Success
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="size-2 rounded-full bg-rose-400" />
+              Failed
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="size-2 rounded-full bg-amber-400" />
+              No answer
+            </span>
+            {stats.in_progress > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="size-2 animate-pulse rounded-full bg-sky-400" />
+                Live
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -334,7 +390,7 @@ export function CallAnalyticsDashboard() {
       {/* Call history */}
       <div className="clay-card overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-slate-200/60 px-4 py-3 dark:border-slate-800/60">
-          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+          <span className="text-[10px] font-black tracking-wider text-slate-500 uppercase">
             Recent Calls
           </span>
           <span className="clay-pill bg-white/80 px-2 py-0.5 font-mono text-[9px] font-bold text-slate-500 dark:bg-slate-800">
@@ -351,14 +407,16 @@ export function CallAnalyticsDashboard() {
             <table className="w-full text-[11px]">
               <thead>
                 <tr className="border-b border-slate-200/60 dark:border-slate-800/60">
-                  {['#', 'Channel', 'Date', 'Time', 'Duration', 'Outcome', 'Reason', 'Turns'].map((h) => (
-                    <th
-                      key={h}
-                      className="px-3 py-2 text-left font-black uppercase tracking-wider text-slate-400"
-                    >
-                      {h}
-                    </th>
-                  ))}
+                  {['#', 'Channel', 'Date', 'Time', 'Duration', 'Outcome', 'Reason', 'Turns'].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-2 text-left font-black tracking-wider text-slate-400 uppercase"
+                      >
+                        {h}
+                      </th>
+                    )
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -380,8 +438,12 @@ export function CallAnalyticsDashboard() {
                           {c.channel}
                         </span>
                       </td>
-                      <td className="px-3 py-2 font-mono text-slate-400">{formatDate(c.started_at)}</td>
-                      <td className="px-3 py-2 font-mono text-slate-500">{formatTime(c.started_at)}</td>
+                      <td className="px-3 py-2 font-mono text-slate-400">
+                        {formatDate(c.started_at)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-slate-500">
+                        {formatTime(c.started_at)}
+                      </td>
                       <td className="px-3 py-2 font-mono font-semibold text-slate-600 dark:text-slate-300">
                         {formatDuration(c.duration_secs)}
                       </td>
@@ -393,7 +455,7 @@ export function CallAnalyticsDashboard() {
                       <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                         {humanReason(c.outcome_reason)}
                         {c.escalation_created === 1 && (
-                          <span className="ml-1.5 clay-pill bg-violet-100 px-1.5 py-0.5 text-[9px] font-black text-violet-800 dark:bg-violet-900/60 dark:text-violet-300">
+                          <span className="clay-pill ml-1.5 bg-violet-100 px-1.5 py-0.5 text-[9px] font-black text-violet-800 dark:bg-violet-900/60 dark:text-violet-300">
                             ESC
                           </span>
                         )}

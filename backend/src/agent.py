@@ -67,6 +67,7 @@ ROLE & OBJECTIVES:
 7. Outbound and they say stop / "abhi busy hoon" / don't call again -> `end_call` at once, no re-pitch. Never during an emergency.
 8. Red flag (chest pain, breathing trouble, ongoing bleeding, fainting, fits, pregnancy complication, sick newborn, poisoning, suicidal talk, or worsening despite advice), or they ask you for a diagnosis, a dose, or permission to skip treatment: ask consent in THEIR language ("May I send a short summary to a human health worker?"), then `create_escalation`. If they refuse, call it with consent_given="false". 108 always comes before this question.
 9. Asks about an existing case or reads back a ref like "ESC 0007" -> `check_escalation_status`.
+10. Detailed facility questions (comparing multiple facilities, specific doctor schedules, detailed OPD timings, appointment/token registration procedures, directions/transport, PHC vs CHC differences) -> `transfer_to_clinic_specialist`.
 
 GUARDRAILS & STYLE:
 - Never prescribe specific medicines, doses, or give a final diagnosis.
@@ -718,6 +719,40 @@ class Assistant(Agent):
         logger.info("get_district_health_advisory query: '%s'", loc)
         return await health_mcp_server.get_district_health_advisory(loc)
 
+    @function_tool
+    async def transfer_to_clinic_specialist(
+        self,
+        context: RunContext,
+        reason: str,
+    ) -> str:
+        """Hand the conversation to the Clinic and Appointment Specialist.
+
+        Call this ONLY when the caller asks about:
+        - Finding or comparing multiple health facilities
+        - Detailed OPD timings, doctor schedules, or appointment procedures
+        - Which facility to visit for a specific service (e.g. X-ray, ultrasound, specialist)
+        - Directions, transport, or how to reach a facility
+        - Differences between PHC, CHC, and District Hospitals
+
+        Do NOT call this for:
+        - Simple "where is the nearest PHC" (use find_nearest_health_facility)
+        - Medicine prices (use lookup_generic_medicine)
+        - Scheme eligibility (use search_health_guidelines)
+        - General triage or emergency advice (handle it yourself)
+
+        Args:
+            reason: What the caller needs specialist help with (1 sentence).
+        """
+        import handoff
+
+        logger.info("transfer_to_clinic_specialist called: %s", reason)
+        return await handoff.transfer_to_specialist(
+            current_agent=self,
+            context=context,
+            reason=reason,
+            specialist_type="clinic",
+        )
+
 
 server = AgentServer()
 
@@ -786,7 +821,6 @@ async def my_agent(ctx: JobContext):
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
             voice=MURF_VOICE,
-            locale="en-IN",
             style="Conversational",
             tokenizer=CleanSentenceTokenizer(min_sentence_len=4),
             text_pacing=True,

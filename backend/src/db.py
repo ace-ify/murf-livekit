@@ -495,6 +495,7 @@ def _now_iso() -> str:
 
 # ─── Day 8: call analytics ───────────────────────────────────────────────────
 
+
 async def record_call_start(
     room_name: str = "",
     channel: str = "browser",
@@ -558,7 +559,12 @@ async def record_call_end(
         await db.commit()
     logger.info(
         "Call %d ended: outcome=%s reason=%s duration=%.1fs turns(u=%d a=%d)",
-        call_id, final, outcome_reason, duration_secs, user_turns, agent_turns,
+        call_id,
+        final,
+        outcome_reason,
+        duration_secs,
+        user_turns,
+        agent_turns,
     )
 
 
@@ -583,13 +589,13 @@ async def get_call_stats(db_path: str = "") -> dict[str, Any]:
                 """
             ) as cursor:
                 row = await cursor.fetchone()
-        total       = int(row["total"]       or 0)
-        successful  = int(row["successful"]  or 0)
-        failed      = int(row["failed"]      or 0)
-        no_answer   = int(row["no_answer"]   or 0)
+        total = int(row["total"] or 0)
+        successful = int(row["successful"] or 0)
+        failed = int(row["failed"] or 0)
+        no_answer = int(row["no_answer"] or 0)
         in_progress = int(row["in_progress"] or 0)
-        avg_dur     = float(row["avg_duration_secs"] or 0.0)
-        completed   = total - in_progress
+        avg_dur = float(row["avg_duration_secs"] or 0.0)
+        completed = total - in_progress
         success_rate = round((successful / completed * 100) if completed > 0 else 0)
         return {
             "total": total,
@@ -603,9 +609,13 @@ async def get_call_stats(db_path: str = "") -> dict[str, Any]:
     except Exception as e:
         logger.warning("get_call_stats failed: %s", e)
         return {
-            "total": 0, "successful": 0, "failed": 0,
-            "no_answer": 0, "in_progress": 0,
-            "avg_duration_secs": 0.0, "success_rate": 0,
+            "total": 0,
+            "successful": 0,
+            "failed": 0,
+            "no_answer": 0,
+            "in_progress": 0,
+            "avg_duration_secs": 0.0,
+            "success_rate": 0,
         }
 
 

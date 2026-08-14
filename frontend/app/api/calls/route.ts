@@ -1,7 +1,7 @@
+import { NextResponse } from 'next/server';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { NextResponse } from 'next/server';
 
 export const revalidate = 0;
 
@@ -14,9 +14,7 @@ function openDb() {
 }
 
 function tableExists(db: DatabaseSync, name: string): boolean {
-  const row = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
-    .get(name);
+  const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
   return !!row;
 }
 
@@ -90,7 +88,15 @@ export async function GET() {
 
     return NextResponse.json(
       {
-        stats: { total, successful, failed, no_answer, in_progress, avg_duration_secs, success_rate },
+        stats: {
+          total,
+          successful,
+          failed,
+          no_answer,
+          in_progress,
+          avg_duration_secs,
+          success_rate,
+        },
         failure_breakdown: failureRows,
         recent_calls: recentRows,
       },

@@ -208,7 +208,6 @@ def lookup_generic_medicine_sync(medicine_name: str) -> str:
         return f"Live pharmaceutical registry ke anusaar '{medicine_name}' Jan Aushadhi kendra par 80% saste generic roop mein uplabdh hai."
 
 
-
 def get_district_health_advisory_sync(district_or_city: str) -> str:
     try:
         loop = asyncio.get_event_loop()

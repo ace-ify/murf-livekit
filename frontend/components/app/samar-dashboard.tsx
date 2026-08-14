@@ -1116,433 +1116,433 @@ export function SamarDashboard() {
             <CallAnalyticsDashboard />
           ) : (
             <>
-          {/* ── ALL-IN-ONE MAIN BOX (Combined Stage: Sine Wave + Fading Chat Stream + Controls) ── */}
-          <section className="clay-card flex flex-1 flex-col overflow-hidden p-4 md:p-5">
-            {/* Box Top Header: Status Badges & Network Latency Pill */}
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-200/60 pb-3 dark:border-slate-800/80">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className={cn(
-                    'clay-pill flex items-center gap-2 px-3.5 py-1 text-xs font-black tracking-wide uppercase shadow-sm',
-                    stateMeta.pillBg,
-                    stateMeta.textColor
-                  )}
-                >
-                  <span className={cn('size-2 rounded-full', stateMeta.dotBg)} />
-                  <span>{stateMeta.badgeText}</span>
-                </div>
-
-                {/* Connecting / Low-bandwidth Adaptive Pipeline Notice */}
-                {dashState === 'connecting' && (
-                  <div className="clay-pill flex animate-pulse items-center gap-1.5 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-900 shadow-sm dark:bg-amber-950/60 dark:text-amber-200">
-                    <Loader2 className="size-3 animate-spin text-amber-600 dark:text-amber-400" />
-                    <span>Connecting voice pipeline (Opus 48kHz)... Please wait</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Network & Latency Pill */}
-              <div className="flex items-center gap-2">
-                <div
-                  className={cn(
-                    'clay-pill flex items-center gap-2 px-3 py-1 font-mono text-[11px] font-bold shadow-sm transition-all',
-                    isConnected
-                      ? 'border border-emerald-300/60 bg-emerald-50/90 text-emerald-950 dark:border-emerald-700/50 dark:bg-emerald-950/60 dark:text-emerald-300'
-                      : 'bg-white/90 text-slate-700 dark:bg-[#151e2b] dark:text-slate-200'
-                  )}
-                  title={
-                    isConnected
-                      ? `Live Call Active${livePing !== null ? `: ${livePing}ms` : ''}`
-                      : 'Agent Online: Ready to connect'
-                  }
-                >
-                  <div className="flex items-center gap-1.5">
-                    <span
+              {/* ── ALL-IN-ONE MAIN BOX (Combined Stage: Sine Wave + Fading Chat Stream + Controls) ── */}
+              <section className="clay-card flex flex-1 flex-col overflow-hidden p-4 md:p-5">
+                {/* Box Top Header: Status Badges & Network Latency Pill */}
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-200/60 pb-3 dark:border-slate-800/80">
+                  <div className="flex items-center gap-2.5">
+                    <div
                       className={cn(
-                        'size-2 rounded-full',
-                        isConnected ? 'animate-pulse bg-emerald-500' : 'bg-emerald-500'
+                        'clay-pill flex items-center gap-2 px-3.5 py-1 text-xs font-black tracking-wide uppercase shadow-sm',
+                        stateMeta.pillBg,
+                        stateMeta.textColor
                       )}
-                    />
-                    <Signal
+                    >
+                      <span className={cn('size-2 rounded-full', stateMeta.dotBg)} />
+                      <span>{stateMeta.badgeText}</span>
+                    </div>
+
+                    {/* Connecting / Low-bandwidth Adaptive Pipeline Notice */}
+                    {dashState === 'connecting' && (
+                      <div className="clay-pill flex animate-pulse items-center gap-1.5 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-900 shadow-sm dark:bg-amber-950/60 dark:text-amber-200">
+                        <Loader2 className="size-3 animate-spin text-amber-600 dark:text-amber-400" />
+                        <span>Connecting voice pipeline (Opus 48kHz)... Please wait</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Network & Latency Pill */}
+                  <div className="flex items-center gap-2">
+                    <div
                       className={cn(
-                        'size-3.5 stroke-[2.5]',
+                        'clay-pill flex items-center gap-2 px-3 py-1 font-mono text-[11px] font-bold shadow-sm transition-all',
                         isConnected
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : 'text-emerald-600 dark:text-emerald-400'
+                          ? 'border border-emerald-300/60 bg-emerald-50/90 text-emerald-950 dark:border-emerald-700/50 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          : 'bg-white/90 text-slate-700 dark:bg-[#151e2b] dark:text-slate-200'
                       )}
-                    />
-                  </div>
+                      title={
+                        isConnected
+                          ? `Live Call Active${livePing !== null ? `: ${livePing}ms` : ''}`
+                          : 'Agent Online: Ready to connect'
+                      }
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            'size-2 rounded-full',
+                            isConnected ? 'animate-pulse bg-emerald-500' : 'bg-emerald-500'
+                          )}
+                        />
+                        <Signal
+                          className={cn(
+                            'size-3.5 stroke-[2.5]',
+                            isConnected
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          )}
+                        />
+                      </div>
 
-                  {isConnected ? (
-                    <>
-                      {livePing !== null && (
+                      {isConnected ? (
                         <>
-                          <span className="font-mono text-xs font-black tracking-tight text-slate-900 dark:text-white">
-                            {livePing}ms
+                          {livePing !== null && (
+                            <>
+                              <span className="font-mono text-xs font-black tracking-tight text-slate-900 dark:text-white">
+                                {livePing}ms
+                              </span>
+                              <span className="text-slate-300 dark:text-slate-600">•</span>
+                            </>
+                          )}
+                          <span className="text-[10px] font-extrabold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
+                            LIVE
                           </span>
-                          <span className="text-slate-300 dark:text-slate-600">•</span>
                         </>
+                      ) : (
+                        <span className="text-[10px] font-extrabold tracking-wider text-slate-800 uppercase dark:text-slate-200">
+                          ONLINE
+                        </span>
                       )}
-                      <span className="text-[10px] font-extrabold tracking-wider text-emerald-700 uppercase dark:text-emerald-400">
-                        LIVE
-                      </span>
-                    </>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── SINGLE UNIFIED STAGE (Pre-Call Centerpiece Hero OR Active Sine Wave + Chat) ── */}
+                <div className="clay-inset relative my-3 flex flex-1 flex-col overflow-hidden rounded-3xl p-4">
+                  {dashState === 'ready' || dashState === 'ended' ? (
+                    /* ── Pre-Call / Post-Call: 3D Spline Orb ── */
+                    <div
+                      onClick={() => start()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          start();
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title="Click to start consultation"
+                      className="group relative flex flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl bg-[#E8EEF5] transition-all hover:brightness-[1.02] focus:outline-none active:scale-[0.99] dark:border dark:border-white/5 dark:bg-[#070b13]"
+                    >
+                      <div className="pointer-events-none absolute inset-0 hidden items-center justify-center dark:flex">
+                        <div className="size-80 rounded-full bg-gradient-to-tr from-cyan-500/20 via-sky-500/15 to-indigo-500/20 blur-3xl" />
+                      </div>
+                      <spline-viewer
+                        url="https://prod.spline.design/4iC321jWjBLbdcUS/scene.splinecode"
+                        className="absolute inset-0 size-full cursor-pointer"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          transform: 'scale(1.5)',
+                          transformOrigin: 'center center',
+                        }}
+                      />
+                    </div>
                   ) : (
-                    <span className="text-[10px] font-extrabold tracking-wider text-slate-800 uppercase dark:text-slate-200">
-                      ONLINE
-                    </span>
+                    /* ── Active / Ongoing Consultation Stage (Sine Wave + Scrolling Chat) ── */
+                    <>
+                      {/* 1. Sine Wave Visualizer Section situated at top (30% compact ratio) */}
+                      <div className="relative z-10 flex h-[100px] w-full shrink-0 items-center justify-center overflow-hidden md:h-[115px]">
+                        <AgentAudioVisualizerWave
+                          size="lg"
+                          state={agentState ?? 'listening'}
+                          color={
+                            dashState === 'speaking'
+                              ? '#7C3AED' // rich violet
+                              : dashState === 'listening'
+                                ? '#059669' // rich emerald
+                                : dashState === 'connecting'
+                                  ? '#D97706' // amber
+                                  : '#0891B2' // cyan
+                          }
+                          colorShift={0.3}
+                          lineWidth={2.5}
+                          blur={0.2}
+                          audioTrack={audioTrack}
+                          className="size-full"
+                        />
+                      </div>
+
+                      {/* 2. Chat Stream scrolling underneath, with top gradient fade-out behind the sine wave */}
+                      <div className="relative mt-1 flex flex-1 flex-col overflow-hidden">
+                        {/* Smooth top fade gradient overlay so messages fade away into the sine wave backdrop */}
+                        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-[#edf2f7] to-transparent dark:from-[#070c14]" />
+
+                        {/* Message Scroll Container */}
+                        <div className="flex flex-1 flex-col gap-3 overflow-y-auto [mask-image:linear-gradient(to_bottom,transparent_0%,black_16px,black_100%)] px-1 pt-4 pb-2">
+                          {displayedMessages.map((m) => {
+                            const isUser = m.isUser;
+                            return (
+                              <div
+                                key={m.id}
+                                className={cn(
+                                  'flex max-w-[82%] items-start gap-2.5 text-xs',
+                                  isUser ? 'flex-row-reverse self-end' : 'flex-row self-start'
+                                )}
+                              >
+                                {/* Avatar / Speaker Tag */}
+                                {isUser ? (
+                                  <span className="clay-pill shrink-0 self-start bg-slate-200 px-2.5 py-1 font-mono text-[10px] font-black text-slate-800 shadow-sm dark:bg-slate-800 dark:text-slate-200">
+                                    YOU
+                                  </span>
+                                ) : (
+                                  <div
+                                    title="Careva AI"
+                                    className="clay-card-flat relative size-8 shrink-0 self-start overflow-hidden rounded-full border border-sky-300/80 bg-[#E8EEF5] shadow-md ring-2 ring-sky-400/30 dark:border-cyan-500/50 dark:bg-[#070b13] dark:ring-cyan-500/30"
+                                  >
+                                    <spline-viewer
+                                      url="https://prod.spline.design/4iC321jWjBLbdcUS/scene.splinecode"
+                                      className="pointer-events-none absolute inset-0 size-full"
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        transform: 'scale(1.8)',
+                                        transformOrigin: 'center center',
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Message Bubble */}
+                                <div
+                                  className={cn(
+                                    'clay-card-flat rounded-2xl px-4 py-2.5 leading-relaxed shadow-sm transition-all',
+                                    isUser
+                                      ? 'border border-slate-300/70 bg-white/95 text-slate-900 dark:border-slate-700/80 dark:bg-[#162030] dark:text-slate-100'
+                                      : 'border border-sky-200/80 bg-gradient-to-r from-sky-50/90 to-cyan-50/90 text-slate-900 shadow-sky-100/50 dark:border-cyan-900/60 dark:bg-gradient-to-r dark:from-[#0f2133] dark:to-[#12283d] dark:text-slate-100 dark:shadow-none'
+                                  )}
+                                >
+                                  <p className="whitespace-pre-wrap">{m.message}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div ref={messagesEndRef} />
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
-              </div>
-            </div>
 
-            {/* ── SINGLE UNIFIED STAGE (Pre-Call Centerpiece Hero OR Active Sine Wave + Chat) ── */}
-            <div className="clay-inset relative my-3 flex flex-1 flex-col overflow-hidden rounded-3xl p-4">
-              {dashState === 'ready' || dashState === 'ended' ? (
-                /* ── Pre-Call / Post-Call: 3D Spline Orb ── */
-                <div
-                  onClick={() => start()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      start();
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  title="Click to start consultation"
-                  className="group relative flex flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-3xl bg-[#E8EEF5] transition-all hover:brightness-[1.02] focus:outline-none active:scale-[0.99] dark:border dark:border-white/5 dark:bg-[#070b13]"
-                >
-                  <div className="pointer-events-none absolute inset-0 hidden items-center justify-center dark:flex">
-                    <div className="size-80 rounded-full bg-gradient-to-tr from-cyan-500/20 via-sky-500/15 to-indigo-500/20 blur-3xl" />
-                  </div>
-                  <spline-viewer
-                    url="https://prod.spline.design/4iC321jWjBLbdcUS/scene.splinecode"
-                    className="absolute inset-0 size-full cursor-pointer"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      transform: 'scale(1.5)',
-                      transformOrigin: 'center center',
-                    }}
-                  />
-                </div>
-              ) : (
-                /* ── Active / Ongoing Consultation Stage (Sine Wave + Scrolling Chat) ── */
-                <>
-                  {/* 1. Sine Wave Visualizer Section situated at top (30% compact ratio) */}
-                  <div className="relative z-10 flex h-[100px] w-full shrink-0 items-center justify-center overflow-hidden md:h-[115px]">
-                    <AgentAudioVisualizerWave
-                      size="lg"
-                      state={agentState ?? 'listening'}
-                      color={
-                        dashState === 'speaking'
-                          ? '#7C3AED' // rich violet
-                          : dashState === 'listening'
-                            ? '#059669' // rich emerald
-                            : dashState === 'connecting'
-                              ? '#D97706' // amber
-                              : '#0891B2' // cyan
-                      }
-                      colorShift={0.3}
-                      lineWidth={2.5}
-                      blur={0.2}
-                      audioTrack={audioTrack}
-                      className="size-full"
-                    />
-                  </div>
-
-                  {/* 2. Chat Stream scrolling underneath, with top gradient fade-out behind the sine wave */}
-                  <div className="relative mt-1 flex flex-1 flex-col overflow-hidden">
-                    {/* Smooth top fade gradient overlay so messages fade away into the sine wave backdrop */}
-                    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-b from-[#edf2f7] to-transparent dark:from-[#070c14]" />
-
-                    {/* Message Scroll Container */}
-                    <div className="flex flex-1 flex-col gap-3 overflow-y-auto [mask-image:linear-gradient(to_bottom,transparent_0%,black_16px,black_100%)] px-1 pt-4 pb-2">
-                      {displayedMessages.map((m) => {
-                        const isUser = m.isUser;
-                        return (
-                          <div
-                            key={m.id}
-                            className={cn(
-                              'flex max-w-[82%] items-start gap-2.5 text-xs',
-                              isUser ? 'flex-row-reverse self-end' : 'flex-row self-start'
-                            )}
-                          >
-                            {/* Avatar / Speaker Tag */}
-                            {isUser ? (
-                              <span className="clay-pill shrink-0 self-start bg-slate-200 px-2.5 py-1 font-mono text-[10px] font-black text-slate-800 shadow-sm dark:bg-slate-800 dark:text-slate-200">
-                                YOU
-                              </span>
-                            ) : (
-                              <div
-                                title="Careva AI"
-                                className="clay-card-flat relative size-8 shrink-0 self-start overflow-hidden rounded-full border border-sky-300/80 bg-[#E8EEF5] shadow-md ring-2 ring-sky-400/30 dark:border-cyan-500/50 dark:bg-[#070b13] dark:ring-cyan-500/30"
-                              >
-                                <spline-viewer
-                                  url="https://prod.spline.design/4iC321jWjBLbdcUS/scene.splinecode"
-                                  className="pointer-events-none absolute inset-0 size-full"
-                                  style={{
-                                    width: '100%',
-                                    height: '100%',
-                                    transform: 'scale(1.8)',
-                                    transformOrigin: 'center center',
-                                  }}
-                                />
+                {/* 3. Bottom Section: Integrated LiveKit Control Bar with Chat Input */}
+                <div className="mt-2 flex shrink-0 flex-col gap-2">
+                  {/* ── Live Facility Push Card (Day 5 LiveKit Data Event) ───────────── */}
+                  <AnimatePresence>
+                    {activeFacility && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                        className="clay-card relative overflow-hidden border border-emerald-300/80 bg-gradient-to-r from-emerald-50/95 via-teal-50/95 to-cyan-50/95 p-3.5 shadow-lg shadow-emerald-500/10 dark:border-emerald-700/60 dark:bg-gradient-to-r dark:from-[#0b1f1c] dark:via-[#0c2227] dark:to-[#0a1b24] dark:shadow-none"
+                      >
+                        {/* Top Header: Badge + Close */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm">
+                              <Building2 className="size-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
+                                {activeFacility.name}
+                              </h4>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                                <span className="clay-pill bg-emerald-100 px-2 py-0.5 text-[9px] font-black text-emerald-800 uppercase dark:bg-emerald-900/80 dark:text-emerald-200">
+                                  {activeFacility.facility_type}
+                                </span>
+                                <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                                  <Clock className="size-3 text-emerald-600" />
+                                  {activeFacility.opd_timings}
+                                </span>
+                                {activeFacility.emergency_24x7 && (
+                                  <span className="clay-pill bg-rose-100 px-2 py-0.5 text-[9px] font-black text-rose-800 uppercase dark:bg-rose-900/80 dark:text-rose-200">
+                                    24x7 Emergency
+                                  </span>
+                                )}
                               </div>
-                            )}
-
-                            {/* Message Bubble */}
-                            <div
-                              className={cn(
-                                'clay-card-flat rounded-2xl px-4 py-2.5 leading-relaxed shadow-sm transition-all',
-                                isUser
-                                  ? 'border border-slate-300/70 bg-white/95 text-slate-900 dark:border-slate-700/80 dark:bg-[#162030] dark:text-slate-100'
-                                  : 'border border-sky-200/80 bg-gradient-to-r from-sky-50/90 to-cyan-50/90 text-slate-900 shadow-sky-100/50 dark:border-cyan-900/60 dark:bg-gradient-to-r dark:from-[#0f2133] dark:to-[#12283d] dark:text-slate-100 dark:shadow-none'
-                              )}
-                            >
-                              <p className="whitespace-pre-wrap">{m.message}</p>
                             </div>
                           </div>
-                        );
-                      })}
-                      <div ref={messagesEndRef} />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
 
-            {/* 3. Bottom Section: Integrated LiveKit Control Bar with Chat Input */}
-            <div className="mt-2 flex shrink-0 flex-col gap-2">
-              {/* ── Live Facility Push Card (Day 5 LiveKit Data Event) ───────────── */}
-              <AnimatePresence>
-                {activeFacility && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: 0.97 }}
-                    transition={{ duration: 0.22, ease: 'easeOut' }}
-                    className="clay-card relative overflow-hidden border border-emerald-300/80 bg-gradient-to-r from-emerald-50/95 via-teal-50/95 to-cyan-50/95 p-3.5 shadow-lg shadow-emerald-500/10 dark:border-emerald-700/60 dark:bg-gradient-to-r dark:from-[#0b1f1c] dark:via-[#0c2227] dark:to-[#0a1b24] dark:shadow-none"
-                  >
-                    {/* Top Header: Badge + Close */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm">
-                          <Building2 className="size-4" />
+                          <button
+                            onClick={() => setActiveFacility(null)}
+                            className="clay-btn flex size-6 shrink-0 items-center justify-center rounded-lg p-0 text-slate-500 hover:text-slate-800"
+                            title="Dismiss card"
+                          >
+                            <X className="size-3.5" />
+                          </button>
                         </div>
-                        <div>
-                          <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
-                            {activeFacility.name}
-                          </h4>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                            <span className="clay-pill bg-emerald-100 px-2 py-0.5 text-[9px] font-black text-emerald-800 uppercase dark:bg-emerald-900/80 dark:text-emerald-200">
-                              {activeFacility.facility_type}
+
+                        {/* Address & Free Services */}
+                        <div className="mt-2.5 grid grid-cols-1 gap-2 text-[11px] md:grid-cols-2">
+                          <div className="flex items-start gap-1.5 text-slate-700 dark:text-slate-300">
+                            <MapPin className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+                            <span className="line-clamp-2">{activeFacility.address}</span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1">
+                            <HeartPulse className="size-3.5 shrink-0 text-teal-600" />
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              Free Services:
                             </span>
-                            <span className="flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                              <Clock className="size-3 text-emerald-600" />
-                              {activeFacility.opd_timings}
-                            </span>
-                            {activeFacility.emergency_24x7 && (
-                              <span className="clay-pill bg-rose-100 px-2 py-0.5 text-[9px] font-black text-rose-800 uppercase dark:bg-rose-900/80 dark:text-rose-200">
-                                24x7 Emergency
+                            {activeFacility.free_services.slice(0, 2).map((srv, idx) => (
+                              <span
+                                key={idx}
+                                className="clay-pill bg-white/80 px-1.5 py-0.5 text-[9px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                              >
+                                {srv}
                               </span>
-                            )}
+                            ))}
                           </div>
                         </div>
-                      </div>
 
+                        {/* Interactive Live Map Embed */}
+                        <AnimatePresence>
+                          {showFacilityMap && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 170 }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.25 }}
+                              className="relative mt-2.5 overflow-hidden rounded-xl border border-emerald-300/80 bg-slate-100 shadow-inner dark:border-emerald-700/60 dark:bg-slate-900"
+                            >
+                              <iframe
+                                title="Facility Live Location Map"
+                                width="100%"
+                                height="170"
+                                loading="lazy"
+                                className="border-0 filter dark:contrast-90 dark:hue-rotate-180 dark:invert-[0.88]"
+                                src={`https://maps.google.com/maps?q=${encodeURIComponent(
+                                  `${activeFacility.name}, ${activeFacility.address}`
+                                )}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
+                              />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        {/* Footer Action Links */}
+                        <div className="mt-3 flex items-center justify-between border-t border-emerald-200/60 pt-2 text-[10px] dark:border-emerald-800/40">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-slate-500 dark:text-slate-400">
+                              Verified: {facilityTimestamp}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowFacilityMap(!showFacilityMap)}
+                              className="clay-pill flex items-center gap-1 bg-white/80 px-2 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-300"
+                              title="Toggle Map View"
+                            >
+                              <MapIcon className="size-3" />
+                              <span>{showFacilityMap ? 'HIDE MAP' : 'SHOW MAP'}</span>
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`https://maps.google.com/?q=${encodeURIComponent(
+                                `${activeFacility.name} ${activeFacility.address}`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="clay-btn flex items-center gap-1 bg-white/90 px-2.5 py-1 font-bold text-emerald-800 hover:text-emerald-950 dark:bg-slate-800 dark:text-emerald-300"
+                            >
+                              <Navigation className="size-3" />
+                              <span>DIRECTIONS</span>
+                            </a>
+                            <a
+                              href="tel:108"
+                              className="clay-btn-primary flex items-center gap-1 px-3 py-1 font-bold text-slate-950"
+                            >
+                              <Phone className="size-3 stroke-[2.5]" />
+                              <span>CALL 108</span>
+                            </a>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Quick Prompt Suggestion Chips */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="mr-1 flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                      <Sparkles className="size-3 text-sky-500" />
+                      <span>{selectedLang === 'hi' ? 'सुझाव:' : 'SUGGEST:'}</span>
+                    </div>
+                    {QUICK_SUGGESTIONS[selectedLang].map((chip: string, idx: number) => (
                       <button
-                        onClick={() => setActiveFacility(null)}
-                        className="clay-btn flex size-6 shrink-0 items-center justify-center rounded-lg p-0 text-slate-500 hover:text-slate-800"
-                        title="Dismiss card"
+                        key={idx}
+                        onClick={() => handleSendMessage(chip)}
+                        className="clay-pill bg-white/90 px-2.5 py-0.5 text-[10px] font-bold text-slate-700 transition-all hover:bg-sky-50 hover:text-sky-900 active:scale-95 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-700"
                       >
-                        <X className="size-3.5" />
+                        {chip}
                       </button>
-                    </div>
+                    ))}
+                  </div>
 
-                    {/* Address & Free Services */}
-                    <div className="mt-2.5 grid grid-cols-1 gap-2 text-[11px] md:grid-cols-2">
-                      <div className="flex items-start gap-1.5 text-slate-700 dark:text-slate-300">
-                        <MapPin className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
-                        <span className="line-clamp-2">{activeFacility.address}</span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1">
-                        <HeartPulse className="size-3.5 shrink-0 text-teal-600" />
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                          Free Services:
-                        </span>
-                        {activeFacility.free_services.slice(0, 2).map((srv, idx) => (
-                          <span
-                            key={idx}
-                            className="clay-pill bg-white/80 px-1.5 py-0.5 text-[9px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                          >
-                            {srv}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Interactive Live Map Embed */}
-                    <AnimatePresence>
-                      {showFacilityMap && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 170 }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.25 }}
-                          className="relative mt-2.5 overflow-hidden rounded-xl border border-emerald-300/80 bg-slate-100 shadow-inner dark:border-emerald-700/60 dark:bg-slate-900"
-                        >
-                          <iframe
-                            title="Facility Live Location Map"
-                            width="100%"
-                            height="170"
-                            loading="lazy"
-                            className="border-0 filter dark:contrast-90 dark:hue-rotate-180 dark:invert-[0.88]"
-                            src={`https://maps.google.com/maps?q=${encodeURIComponent(
-                              `${activeFacility.name}, ${activeFacility.address}`
-                            )}&t=&z=14&ie=UTF8&iwloc=&output=embed`}
-                          />
-                        </motion.div>
+                  {/* Input and Controls Row */}
+                  <div className="flex items-center gap-2">
+                    {/* Mute Mic Button */}
+                    <button
+                      onClick={() => {
+                        if (isConnected) microphoneToggle.toggle();
+                      }}
+                      disabled={!isConnected}
+                      className={cn(
+                        'clay-btn flex size-10 shrink-0 items-center justify-center rounded-2xl transition-all disabled:opacity-50',
+                        microphoneToggle.enabled
+                          ? 'text-slate-700 hover:text-slate-950'
+                          : 'clay-btn-danger text-white'
                       )}
-                    </AnimatePresence>
+                      title={microphoneToggle.enabled ? 'Mute microphone' : 'Unmute microphone'}
+                    >
+                      {microphoneToggle.enabled ? (
+                        <Mic className="size-4 stroke-[2.5]" />
+                      ) : (
+                        <MicOff className="size-4 stroke-[2.5]" />
+                      )}
+                    </button>
 
-                    {/* Footer Action Links */}
-                    <div className="mt-3 flex items-center justify-between border-t border-emerald-200/60 pt-2 text-[10px] dark:border-emerald-800/40">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-slate-500 dark:text-slate-400">
-                          Verified: {facilityTimestamp}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowFacilityMap(!showFacilityMap)}
-                          className="clay-pill flex items-center gap-1 bg-white/80 px-2 py-0.5 font-bold text-emerald-800 hover:bg-emerald-100 dark:bg-slate-800 dark:text-emerald-300"
-                          title="Toggle Map View"
-                        >
-                          <MapIcon className="size-3" />
-                          <span>{showFacilityMap ? 'HIDE MAP' : 'SHOW MAP'}</span>
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={`https://maps.google.com/?q=${encodeURIComponent(
-                            `${activeFacility.name} ${activeFacility.address}`
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="clay-btn flex items-center gap-1 bg-white/90 px-2.5 py-1 font-bold text-emerald-800 hover:text-emerald-950 dark:bg-slate-800 dark:text-emerald-300"
-                        >
-                          <Navigation className="size-3" />
-                          <span>DIRECTIONS</span>
-                        </a>
-                        <a
-                          href="tel:108"
-                          className="clay-btn-primary flex items-center gap-1 px-3 py-1 font-bold text-slate-950"
-                        >
-                          <Phone className="size-3 stroke-[2.5]" />
-                          <span>CALL 108</span>
-                        </a>
-                      </div>
+                    {/* Text Chat Input Field */}
+                    <div className="clay-card-flat flex flex-1 items-center px-3.5 py-1.5">
+                      <input
+                        type="text"
+                        value={chatInputText}
+                        onChange={(e) => setChatInputText(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder={
+                          selectedLang === 'hi'
+                            ? 'अपनी बीमारी या सवाल यहाँ लिखें... (Enter दबाएं)'
+                            : 'Type your symptom or question... (Press Enter to send)'
+                        }
+                        className="w-full bg-transparent text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
+                      />
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
 
-              {/* Quick Prompt Suggestion Chips */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <div className="mr-1 flex items-center gap-1 text-[10px] font-bold text-slate-500">
-                  <Sparkles className="size-3 text-sky-500" />
-                  <span>{selectedLang === 'hi' ? 'सुझाव:' : 'SUGGEST:'}</span>
+                    {/* Send Button */}
+                    <button
+                      onClick={() => handleSendMessage()}
+                      disabled={!chatInputText.trim() || isSendingChat}
+                      className="clay-btn-primary flex size-10 shrink-0 items-center justify-center rounded-2xl disabled:scale-100 disabled:opacity-40"
+                      title="Send message"
+                    >
+                      {isSendingChat ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <SendHorizontal className="size-4 stroke-[2.5]" />
+                      )}
+                    </button>
+
+                    {/* Start / End Call Button */}
+                    {!isConnected ? (
+                      <button
+                        onClick={() => start()}
+                        className="clay-btn-primary flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase shadow-md transition-transform hover:scale-105 active:scale-95"
+                        title={dashState === 'ended' ? 'Resume session' : 'Start consultation'}
+                      >
+                        <Phone className="size-3.5 stroke-[2.5]" />
+                        <span className="hidden sm:inline">START</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => end()}
+                        className="clay-btn-danger flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase shadow-md transition-transform hover:scale-105 active:scale-95"
+                        title="End current call"
+                      >
+                        <PhoneOff className="size-3.5 stroke-[2.5]" />
+                        <span className="hidden sm:inline">END</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {QUICK_SUGGESTIONS[selectedLang].map((chip: string, idx: number) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSendMessage(chip)}
-                    className="clay-pill bg-white/90 px-2.5 py-0.5 text-[10px] font-bold text-slate-700 transition-all hover:bg-sky-50 hover:text-sky-900 active:scale-95 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-700"
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-
-              {/* Input and Controls Row */}
-              <div className="flex items-center gap-2">
-                {/* Mute Mic Button */}
-                <button
-                  onClick={() => {
-                    if (isConnected) microphoneToggle.toggle();
-                  }}
-                  disabled={!isConnected}
-                  className={cn(
-                    'clay-btn flex size-10 shrink-0 items-center justify-center rounded-2xl transition-all disabled:opacity-50',
-                    microphoneToggle.enabled
-                      ? 'text-slate-700 hover:text-slate-950'
-                      : 'clay-btn-danger text-white'
-                  )}
-                  title={microphoneToggle.enabled ? 'Mute microphone' : 'Unmute microphone'}
-                >
-                  {microphoneToggle.enabled ? (
-                    <Mic className="size-4 stroke-[2.5]" />
-                  ) : (
-                    <MicOff className="size-4 stroke-[2.5]" />
-                  )}
-                </button>
-
-                {/* Text Chat Input Field */}
-                <div className="clay-card-flat flex flex-1 items-center px-3.5 py-1.5">
-                  <input
-                    type="text"
-                    value={chatInputText}
-                    onChange={(e) => setChatInputText(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={
-                      selectedLang === 'hi'
-                        ? 'अपनी बीमारी या सवाल यहाँ लिखें... (Enter दबाएं)'
-                        : 'Type your symptom or question... (Press Enter to send)'
-                    }
-                    className="w-full bg-transparent text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
-                  />
-                </div>
-
-                {/* Send Button */}
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={!chatInputText.trim() || isSendingChat}
-                  className="clay-btn-primary flex size-10 shrink-0 items-center justify-center rounded-2xl disabled:scale-100 disabled:opacity-40"
-                  title="Send message"
-                >
-                  {isSendingChat ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <SendHorizontal className="size-4 stroke-[2.5]" />
-                  )}
-                </button>
-
-                {/* Start / End Call Button */}
-                {!isConnected ? (
-                  <button
-                    onClick={() => start()}
-                    className="clay-btn-primary flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase shadow-md transition-transform hover:scale-105 active:scale-95"
-                    title={dashState === 'ended' ? 'Resume session' : 'Start consultation'}
-                  >
-                    <Phone className="size-3.5 stroke-[2.5]" />
-                    <span className="hidden sm:inline">START</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => end()}
-                    className="clay-btn-danger flex items-center gap-1.5 px-4 py-2 text-xs font-black uppercase shadow-md transition-transform hover:scale-105 active:scale-95"
-                    title="End current call"
-                  >
-                    <PhoneOff className="size-3.5 stroke-[2.5]" />
-                    <span className="hidden sm:inline">END</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
+              </section>
             </>
           )}
         </main>
