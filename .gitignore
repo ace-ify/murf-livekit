@@ -1,4 +1,8 @@
 .env
 .env.*
 !.env.example
+# caller memory + escalations — real phone numbers, never commit
+*.db
+*.db-wal
+*.db-shm
 .DS_Store
